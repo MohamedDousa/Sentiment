@@ -22,13 +22,14 @@ class NLPProcessor:
         Args:
             themes_dict (dict, optional): Dictionary mapping themes to keywords
         """
-        # Define default themes if not provided
-        self.themes = themes_dict or {
+        # Define themes relevant to staff feedback
+        self.themes = {
+            "workload": [
+                "too much work", "burnout", "exhausted", "overworked", "staffing levels", 
+                "staffing shortages", "short staffed", "not enough staff", "under resourced",
+                "high workload", "excessive workload", "workload pressure"
+            ],
             # Existing themes with expansions
-            "workload": ["overwhelming", "unsustainable", "long hours", "exhausted",
-                        "pressure", "unmanageable", "stress", "burnout", "capacity",
-                        "demanding", "relentless", "backlog", "targets", "ratio"],
-
             "staffing": ["understaffed", "shortages", "recruitment", "retention",
                         "agency staff", "bank shifts", "rota gaps", "sickness absence",
                         "vacancies", "skill mix", "skill drain", "agency rates"],
@@ -110,9 +111,74 @@ class NLPProcessor:
             ],
 
             "resource_allocation": [
-                "bed management", "theatre time", "MRI slots", "clinic space",
-                "bank staff costs", "agency spend", "outsourcing", "homecare",
-                "equipment budgets", "drug shortages", "supply chain"
+                "adequate staffing", "sufficient resources", "fair allocation", "equal distribution",
+                "prioritization", "resource constraints", "fair workload", "balanced responsibilities"
+            ],
+
+            # New civility and respect themes
+            "respect_communication": [
+                "active listening", "respectful language", "tone of voice", "speaking over",
+                "interrupting", "talking behind back", "inclusive language", "civil discourse",
+                "communicating clearly", "open dialogue", "constructive feedback", "criticism",
+                "condescending", "patronizing", "dismissive", "listen to each other", "heard",
+                "being ignored", "respect opinions", "different perspectives", "polite conversation",
+                "rude comments", "aggressive emails", "formal communication", "informal chat"
+            ],
+            
+            "workplace_culture": [
+                "toxic environment", "negative atmosphere", "gossip", "rumors", "blame culture",
+                "positive culture", "supportive culture", "bullying", "harassment", "discrimination",
+                "cliques", "favoritism", "inclusive culture", "respect diversity", "workplace values",
+                "organizational values", "culture shift", "cultural change", "hostile environment",
+                "psychological safety", "safe to speak up", "fear of reprisal", "appreciation"
+            ],
+            
+            "leadership_behavior": [
+                "role model", "leading by example", "management style", "leadership approach",
+                "manager behavior", "supervisor conduct", "set standards", "accountability",
+                "consequences", "address behavior", "call out", "speak up", "intervene",
+                "fair treatment", "transparent decisions", "approachable managers", "open door policy",
+                "authority figures", "power dynamics", "hierarchical issues"
+            ],
+            
+            "workplace_policies": [
+                "code of conduct", "behavior policy", "civility policy", "standards of behavior",
+                "expectations", "guidelines", "disciplinary process", "enforcement", "reporting procedure",
+                "complaint process", "grievance procedure", "conflict resolution", "mediation",
+                "zero tolerance", "policy implementation", "clear boundaries", "rules"
+            ],
+            
+            "inclusion_diversity": [
+                "diversity awareness", "diversity training", "cultural sensitivity", "different backgrounds",
+                "different perspectives", "inclusion efforts", "belonging", "feel valued", "equality",
+                "equity", "diverse workforce", "ethnic minority", "gender equality", "age discrimination",
+                "cultural competence", "bias", "prejudice", "stereotype", "implicit bias"
+            ],
+            
+            "training_development": [
+                "civility training", "respect workshop", "communication skills", "interpersonal skills",
+                "soft skills", "conflict management", "de-escalation", "emotional intelligence",
+                "empathy training", "team building", "awareness sessions", "professional development",
+                "continuing education", "learning opportunity", "skills development"
+            ],
+            
+            "recognition_appreciation": [
+                "recognition", "appreciation", "acknowledge", "praise", "reward", "incentivize",
+                "celebrate success", "positive feedback", "gratitude", "thank you", "recognition program",
+                "staff awards", "feeling valued", "contribution recognized", "acknowledge effort",
+                "meaningful recognition", "public praise", "private appreciation"
+            ],
+            
+            "work_environment": [
+                "physical environment", "work space", "office layout", "hot desking", 
+                "breakout space", "communication channels", "noise levels", "privacy", 
+                "communal areas", "break rooms", "lunch areas", "social space", "team space"
+            ],
+            
+            "stress_wellbeing": [
+                "stress levels", "emotional support", "mental health", "wellbeing initiatives",
+                "work-life balance", "pressure", "anxiety", "burnout", "self-care", "resilience",
+                "coping mechanisms", "support services", "staff wellbeing", "wellness programs"
             ]
         }
 
@@ -292,7 +358,7 @@ class NLPProcessor:
         result_df['sentiment_score'] = 0.5
         
         # Initialize theme columns
-        for theme in self.themes.keys():
+        for theme in self.themes:
             result_df[f'theme_{theme}'] = 0
 
         # Process each comment
