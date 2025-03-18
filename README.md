@@ -1,50 +1,53 @@
-# Employee Feedback Analysis Tool
+# Staff Feedback Analysis Tool
 
-An AI-powered tool to analyze employee feedback and identify departments at risk of operational issues using NLP and machine learning.
+An AI-powered tool to analyze staff feedback on workplace civility and respect, providing actionable insights through NLP and interactive visualizations.
 
 ## Overview
 
-This tool processes unstructured employee feedback (free-text comments) to:
+This tool processes unstructured staff feedback (free-text comments) to:
 - Analyze sentiment using DistilBERT
-- Detect themes/topics across 35+ categories
-- Predict department risk scores on a 1-5 scale
-- Provide explainable insights using SHAP values
+- Detect themes/topics related to workplace civility and respect
+- Extract suggested solutions from employee comments
+- Analyze sentiment distribution by theme
 - Visualize results in an interactive dashboard
+- Provide actionable insights for improving workplace culture
 
 ## Key Components
 
 ### 1. Data Pipeline
 - Accepts CSV/Excel files with department names and free-text comments
+- Handles single-question feedback formats (like the NQPS Q4 document)
 - Cleans and normalizes text data
 - Groups comments by department
 
 ### 2. NLP Engine
 - Sentiment analysis using DistilBERT transformer model
-- Custom theme detection across 35+ categories
+- Custom theme detection for workplace civility topics
 - Rule-based pattern matching with exclusion filters
+- Solution extraction through keyword pattern matching
+- Theme-level sentiment distribution analysis
 
-### 3. Risk Prediction
-- XGBoost model predicts department risk scores
-- SHAP values explain key risk factors
-- Fallback to DBSCAN clustering when labeled data is unavailable
-
-### 4. API Layer (FastAPI)
+### 3. API Layer (FastAPI)
 - File upload and processing endpoint
-- Risk score endpoints with department-level insights
 - Theme analysis and comment sampling
+- Department-level insights
+- Sentiment distribution metrics
+- Theme-specific comment retrieval for sentiment analysis
 
-### 5. Dashboard (Streamlit)
-- Interactive visualizations of risk scores
-- Theme frequency analysis
-- Comment explorer with sentiment filtering
+### 4. Dashboard (Streamlit)
+- Interactive visualizations of sentiment and themes
+- Solution frequency analysis with examples
+- Comment explorer with sentiment and theme filtering
 - Department-level drilldowns
+- Theme Sentiment Analysis with positive/neutral/negative breakdowns
+- Dedicated Insights & Solutions page for actionable recommendations
 
 ## Installation
 
 1. Clone this repository:
 ```
-git clone https://github.com/yourusername/employee-feedback-analysis.git
-cd employee-feedback-analysis
+git clone https://github.com/yourusername/staff-feedback-analysis.git
+cd staff-feedback-analysis
 ```
 
 2. Create a virtual environment:
@@ -67,41 +70,55 @@ python -m spacy download en_core_web_sm
 
 ### Running the Application
 
-1. Start the API server:
+1. Run the complete application using the run script:
 ```
-uvicorn api:app --reload
+python run.py
 ```
+This will start both the API server and the Streamlit dashboard.
 
-2. Start the Streamlit dashboard:
-```
-streamlit run dashboard.py
-```
-
-3. Access the dashboard in your web browser at http://localhost:8501
+2. Access the dashboard in your web browser at http://localhost:8501
 
 ### Using the Dashboard
 
 1. Upload a CSV or Excel file containing:
-   - A 'department' column with department names
-   - A 'free-text comments' column with employee feedback
+   - Free-text comments from staff about workplace civility and respect
+   - The tool can handle both multi-question surveys with department information
+   - And single-question formats (like NQPS Q4) without explicit department data
 
-2. View the risk analysis results:
-   - Department risk scores visualization
+2. View the analysis results:
+   - Sentiment distribution visualization
    - Theme frequency breakdown
-   - Department-specific insights
-   - Sample comments filtered by sentiment or theme
+   - Theme sentiment analysis showing positive/neutral/negative distributions
+   - Solution categorization with exact counts
+   - Comment samples filtered by sentiment, theme, or department
+   - Detailed insights and actionable recommendations
+
+### Theme Sentiment Analysis
+
+The Theme Sentiment Analysis feature provides deeper insights into how staff feel about each workplace theme:
+
+1. Access it through the "Themes Analysis" page and select the "Theme Sentiment Analysis" tab
+2. The analysis shows:
+   - Sentiment distribution for each theme (positive, neutral, negative percentages)
+   - Sentiment comparison across themes with both stacked and grouped visualizations
+   - Detailed metrics including sentiment ratios for each theme
+   - Key insights highlighting the most positive and most negative themes
+   - Recommended focus areas based on sentiment patterns
+
+This feature helps you understand not just what themes are mentioned, but whether staff comments about each theme are primarily positive or negative, enabling more targeted action planning.
 
 ## Project Structure
 
 ```
-employee-feedback-analysis/
+staff-feedback-analysis/
 │
 ├── api.py                # FastAPI backend
 ├── dashboard.py          # Streamlit frontend
-├── main.py               # Integration script
+├── run.py                # Integration script to run both API and dashboard
 ├── preprocessing.py      # Data loading and cleaning
 ├── nlp_pipeline.py       # Text analysis and theme detection
-├── predictive_model.py   # Risk scoring models
+├── development_summary.md # Documentation of development decisions and updates
+├── update_dev_summary.py # Script to update development summary
 ├── requirements.txt      # Dependencies
 └── README.md             # Documentation
 ```
@@ -110,12 +127,16 @@ employee-feedback-analysis/
 
 - HR managers
 - Hospital administrators
-- Operational risk teams
+- Team leaders
 - Employee experience departments
 
 ## Outcome
 
-This tool helps organizations proactively address workplace issues by identifying at-risk departments and understanding key drivers of employee dissatisfaction.
+This tool helps organizations proactively address workplace civility issues by understanding staff concerns, identifying specific problem areas, and extracting actionable solutions directly from staff feedback.
+
+## Documentation
+
+For detailed information about the development process, key decisions, and recent updates, see the `development_summary.md` file.
 
 ## License
 

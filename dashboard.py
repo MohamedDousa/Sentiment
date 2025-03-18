@@ -531,10 +531,11 @@ def themes_analysis():
     
     # Display themes
     if themes:
-        # Create columns for the themes
-        cols = st.columns(2)
+        # Create tabs for different analysis views
+        theme_tabs = st.tabs(["Theme Distribution", "Theme Sentiment Analysis", "Civility Insights"])
         
-        with cols[0]:
+        # First tab: Theme Distribution (existing functionality)
+        with theme_tabs[0]:
             st.subheader("Overall Theme Distribution")
             
             # Check the format of themes data and convert to a proper format for DataFrame
@@ -579,9 +580,178 @@ def themes_analysis():
                 # Display the table
                 st.subheader("Theme Frequency Table")
                 st.dataframe(theme_df)
+                
+        # Second tab: Theme Sentiment Analysis (new functionality)
+        with theme_tabs[1]:
+            st.subheader("Theme Sentiment Analysis")
+            
+            st.markdown("""
+            This analysis shows the sentiment distribution for each theme. 
+            See whether comments mentioning each theme are primarily positive, neutral, or negative.
+            """)
+            
+            # We need to get sentiment data for each theme
+            theme_sentiment_data = {}
+            
+            # Define the top themes for analysis (use themes with highest counts)
+            if 'theme_df' in locals():
+                # Get top 10 themes
+                top_themes = theme_df.head(10)['theme'].tolist()
+                
+                # Initialize progress bar
+                progress_bar = st.progress(0)
+                
+                # For each theme, get sample comments and analyze sentiment
+                for i, theme in enumerate(top_themes):
+                    # Update progress
+                    progress_bar.progress((i + 1) / len(top_themes))
+                    
+                    # Get comments for this theme (increase limit to get a representative sample)
+                    theme_comments = get_sample_comments(theme=theme, limit=100)
+                    
+                    if theme_comments and isinstance(theme_comments, list):
+                        # Count different sentiment categories
+                        sentiment_counts = {"POSITIVE": 0, "NEUTRAL": 0, "NEGATIVE": 0}
+                        
+                        for comment in theme_comments:
+                            if not isinstance(comment, dict):
+                                continue
+                                
+                            score = comment.get("sentiment_score", 0.5)
+                            
+                            # Convert score to sentiment category
+                            if score > 0.6:
+                                sentiment_counts["POSITIVE"] += 1
+                            elif score < 0.4:
+                                sentiment_counts["NEGATIVE"] += 1
+                            else:
+                                sentiment_counts["NEUTRAL"] += 1
+                        
+                        # Store the sentiment distribution for this theme
+                        theme_sentiment_data[theme] = sentiment_counts
+                
+                # Remove progress bar
+                progress_bar.empty()
+                
+                # Create a DataFrame for visualization
+                if theme_sentiment_data:
+                    sentiment_rows = []
+                    
+                    for theme, counts in theme_sentiment_data.items():
+                        total = sum(counts.values())
+                        
+                        if total > 0:
+                            # Calculate percentages
+                            pos_pct = (counts["POSITIVE"] / total * 100) if total > 0 else 0
+                            neu_pct = (counts["NEUTRAL"] / total * 100) if total > 0 else 0
+                            neg_pct = (counts["NEGATIVE"] / total * 100) if total > 0 else 0
+                            
+                            # Format theme name for display
+                            display_theme = theme.replace("theme_", "").replace("_", " ").title()
+                            
+                            # Add row for each sentiment category
+                            sentiment_rows.append({"theme": display_theme, "sentiment": "Positive", "percentage": pos_pct, "count": counts["POSITIVE"]})
+                            sentiment_rows.append({"theme": display_theme, "sentiment": "Neutral", "percentage": neu_pct, "count": counts["NEUTRAL"]})
+                            sentiment_rows.append({"theme": display_theme, "sentiment": "Negative", "percentage": neg_pct, "count": counts["NEGATIVE"]})
+                    
+                    # Create DataFrame
+                    sentiment_df = pd.DataFrame(sentiment_rows)
+                    
+                    # Create a stacked bar chart
+                    fig = px.bar(
+                        sentiment_df,
+                        x="theme",
+                        y="percentage",
+                        color="sentiment",
+                        title="Sentiment Distribution by Theme",
+                        labels={"theme": "Theme", "percentage": "Percentage (%)", "sentiment": "Sentiment"},
+                        color_discrete_map={
+                            "Positive": "green",
+                            "Neutral": "gray",
+                            "Negative": "red"
+                        },
+                        barmode="stack"
+                    )
+                    
+                    fig.update_layout(xaxis_tickangle=-45)
+                    st.plotly_chart(fig, use_container_width=True)
+                    
+                    # Display a grouped bar chart for better comparison
+                    st.subheader("Sentiment Comparison Across Themes")
+                    
+                    # Create a column chart specifically for positive and negative percentages
+                    pivot_df = sentiment_df.pivot(index="theme", columns="sentiment", values="percentage").reset_index()
+                    
+                    # Sort by negative percentage (descending)
+                    pivot_df = pivot_df.sort_values("Negative", ascending=False)
+                    
+                    fig2 = px.bar(
+                        pivot_df,
+                        x="theme",
+                        y=["Negative", "Neutral", "Positive"],
+                        title="Sentiment Distribution by Theme",
+                        labels={"theme": "Theme", "value": "Percentage (%)", "variable": "Sentiment"},
+                        color_discrete_map={
+                            "Positive": "green",
+                            "Neutral": "gray",
+                            "Negative": "red"
+                        },
+                        barmode="group"
+                    )
+                    
+                    fig2.update_layout(xaxis_tickangle=-45)
+                    st.plotly_chart(fig2, use_container_width=True)
+                    
+                    # Create a details table
+                    st.subheader("Detailed Sentiment Data by Theme")
+                    
+                    # Create a more readable table
+                    details_table = []
+                    for theme in pivot_df["theme"]:
+                        theme_data = pivot_df[pivot_df["theme"] == theme].iloc[0]
+                        details_table.append({
+                            "Theme": theme,
+                            "Positive (%)": round(theme_data["Positive"], 1),
+                            "Neutral (%)": round(theme_data["Neutral"], 1),
+                            "Negative (%)": round(theme_data["Negative"], 1),
+                            "Sentiment Ratio": round(theme_data["Positive"] / max(theme_data["Negative"], 0.1), 2)
+                        })
+                    
+                    details_df = pd.DataFrame(details_table)
+                    st.dataframe(details_df)
+                    
+                    # Display insights
+                    st.subheader("Key Insights")
+                    
+                    # Find the most negative theme
+                    most_negative = pivot_df.iloc[0]["theme"]
+                    negative_pct = round(pivot_df.iloc[0]["Negative"], 1)
+                    
+                    # Find the most positive theme
+                    most_positive_idx = pivot_df["Positive"].idxmax()
+                    most_positive = pivot_df.iloc[most_positive_idx]["theme"]
+                    positive_pct = round(pivot_df.iloc[most_positive_idx]["Positive"], 1)
+                    
+                    st.markdown(f"""
+                    - **Most Negative Theme**: {most_negative} ({negative_pct}% negative sentiment)
+                    - **Most Positive Theme**: {most_positive} ({positive_pct}% positive sentiment)
+                    
+                    **What This Means**:
+                    
+                    The sentiment analysis reveals how staff feel about different themes in the workplace. Themes with higher negative sentiment indicate areas of concern, while themes with higher positive sentiment highlight strengths to build upon.
+                    
+                    **Recommended Focus Areas**:
+                    
+                    1. Address issues related to {most_negative.lower()} as a top priority
+                    2. Learn from positive feedback about {most_positive.lower()} to apply lessons to other areas
+                    """)
+                else:
+                    st.info("No sentiment data available for the themes.")
+            else:
+                st.info("No theme data available to analyze sentiment.")
         
-        # Use the second column for civility insights
-        with cols[1]:
+        # Third tab: Civility Insights (existing functionality)
+        with theme_tabs[2]:
             # Add a section specifically for civility and respect themes
             st.subheader("Civility & Respect Insights")
             
@@ -715,12 +885,15 @@ def insights_solutions():
         st.info("No data loaded. Please upload a file using the sidebar.")
         st.stop()
     
-    # Get the comments data for analysis
-    all_comments = get_sample_comments(limit=500)  # Get as many comments as possible
+    # Get the comments data for analysis - increase limit to ensure all 510 comments are retrieved
+    all_comments = get_sample_comments(limit=1000)  # Increased from 500 to 1000
     
     if not all_comments or not isinstance(all_comments, list) or len(all_comments) == 0:
         st.error("Unable to retrieve comments data. Please ensure data is loaded.")
         st.stop()
+    
+    # Show how many comments are being analyzed
+    st.info(f"Analyzing {len(all_comments)} comments for insights...")
     
     # Extract key insights from comments
     # First, classify comments by sentiment and whether they contain a suggested solution
@@ -739,120 +912,112 @@ def insights_solutions():
         'recognition_appreciation': {'problems': [], 'solutions': []},
     }
     
-    # Common solution phrases that might indicate a suggestion
+    # Common solution phrases that might indicate a suggestion - expanded list
     solution_phrases = [
         "should", "could", "would help", "needed", "need to", "important to", 
         "recommend", "suggestion", "idea", "propose", "implement", "introduce",
         "start", "begin", "create", "develop", "establish", "set up", "improve",
-        "enhance", "boost", "increase", "encourage"
+        "enhance", "boost", "increase", "encourage", "provide", "ensure", "must",
+        "have to", "consider", "try", "adopt", "promote", "support"
     ]
     
-    # Define more specific solution categories for clustering
+    # Define more specific solution categories for clustering with expanded keywords
     specific_solutions = {
         "better_communication": {
             "keywords": ["better communication", "improve communication", "communicate better", "open communication", 
                          "transparent communication", "honest communication", "clear communication", 
-                         "communicate openly", "communication channels", "communication skills"],
+                         "communicate openly", "communication channels", "communication skills", "talk", "discuss",
+                         "conversation", "dialogue", "speak", "speaking", "express", "information sharing"],
             "comments": [],
             "display_name": "Better Communication",
             "example_comments": []
         },
         "management_training": {
             "keywords": ["management training", "train managers", "leadership training", "leader training", 
-                         "manager development", "train supervisors", "management skills", "leadership development"],
+                         "manager development", "train supervisors", "management skills", "leadership development",
+                         "manager education", "supervisory skills", "leadership coaching"],
             "comments": [],
             "display_name": "Management/Leadership Training",
             "example_comments": []
         },
         "staff_training": {
             "keywords": ["staff training", "employee training", "training for staff", "train employees", 
-                         "professional development", "skills training", "training opportunities", "educational opportunities"],
+                         "professional development", "skills training", "training opportunities", "educational opportunities",
+                         "learning opportunities", "workshops for staff", "skill development"],
             "comments": [],
             "display_name": "Staff Training & Development",
             "example_comments": []
         },
         "accountability": {
             "keywords": ["accountability", "hold accountable", "consequences", "responsible", "responsibility", 
-                         "addressing issues", "address behavior", "address problems", "take action"],
+                         "addressing issues", "address behavior", "address problems", "take action", "call out",
+                         "challenge", "confront", "discipline", "consequence", "corrective"],
             "comments": [],
             "display_name": "Accountability Measures",
             "example_comments": []
         },
         "culture_improvement": {
             "keywords": ["better culture", "improve culture", "positive culture", "workplace culture", 
-                         "culture change", "respectful culture", "work environment", "atmosphere", "positive environment"],
+                         "culture change", "respectful culture", "work environment", "atmosphere", "positive environment",
+                         "healthy culture", "workplace environment", "office culture", "team culture"],
             "comments": [],
             "display_name": "Culture Improvement",
             "example_comments": []
         },
         "lead_by_example": {
             "keywords": ["lead by example", "leading by example", "role model", "role models", "role modeling", 
-                         "set an example", "setting example", "model behavior", "demonstrate"],
+                         "set an example", "setting example", "model behavior", "demonstrate", 
+                         "example", "exemplify", "show", "showing", "modeling", "leaders should model"],
             "comments": [],
             "display_name": "Leading by Example",
             "example_comments": []
         },
         "teambuilding": {
             "keywords": ["team building", "team activities", "social events", "get together", "social activities", 
-                         "group activities", "team events", "team cohesion", "team bonding"],
+                         "group activities", "team events", "team cohesion", "team bonding", "bonding activities",
+                         "team development", "collaborative activities", "team meetings", "team days"],
             "comments": [],
             "display_name": "Team Building Activities",
             "example_comments": []
         },
         "recognition_programs": {
             "keywords": ["recognition", "rewards", "incentives", "award", "appreciate", "appreciation", 
-                         "acknowledge", "acknowledgment", "praise", "compliment"],
+                         "acknowledge", "acknowledgment", "praise", "compliment", "recognition program",
+                         "reward system", "award program", "appreciate", "valued"],
             "comments": [],
             "display_name": "Recognition & Appreciation",
             "example_comments": []
         },
         "policy_enforcement": {
             "keywords": ["enforce policy", "policies", "guidelines", "rules", "procedures", "enforce rules", 
-                         "clear policies", "policy implementation", "strict enforcement"],
+                         "clear policies", "policy implementation", "strict enforcement", "code of conduct",
+                         "standards", "regulations", "protocols", "compliance"],
             "comments": [],
             "display_name": "Policy Enforcement",
             "example_comments": []
         },
         "reporting_mechanism": {
             "keywords": ["reporting", "report system", "anonymous reports", "complaint system", "complaint process", 
-                         "reporting mechanism", "reporting system", "report concerns", "raise concerns"],
+                         "reporting mechanism", "reporting system", "report concerns", "raise concerns", 
+                         "anonymous reporting", "complaint procedure", "raise issues", "speak up"],
             "comments": [],
             "display_name": "Reporting Mechanisms",
             "example_comments": []
         },
-        "zero_tolerance": {
-            "keywords": ["zero tolerance", "no tolerance", "not tolerate", "unacceptable", "not accept", 
-                         "intolerance", "take seriously", "serious consequences"],
+        "respect_promotion": {
+            "keywords": ["respect", "respectful", "civility", "civil", "polite", "politeness", "courteous", 
+                         "courtesy", "manners", "etiquette", "dignified", "dignity", "consideration",
+                         "regard", "esteem"],
             "comments": [],
-            "display_name": "Zero Tolerance Approach",
-            "example_comments": []
-        },
-        "inclusion_diversity": {
-            "keywords": ["inclusion", "diversity", "inclusive", "diverse", "equality", "equal treatment", 
-                         "equity", "fair treatment", "respect differences", "cultural awareness"],
-            "comments": [],
-            "display_name": "Inclusion & Diversity",
-            "example_comments": []
-        },
-        "work_life_balance": {
-            "keywords": ["work life balance", "work-life balance", "workload", "overworked", "burnout", 
-                         "stress reduction", "flexible working", "flexibility", "reasonable hours"],
-            "comments": [],
-            "display_name": "Work-Life Balance",
+            "display_name": "Promoting Respect & Civility",
             "example_comments": []
         },
         "listening": {
             "keywords": ["listen", "listening", "hear concerns", "hear feedback", "listening skills", 
-                         "hear out", "pay attention", "attentive", "active listening"],
+                         "hear out", "pay attention", "attentive", "active listening", "receptive",
+                         "responsive", "taking feedback", "taking input", "hearing"],
             "comments": [],
             "display_name": "Better Listening",
-            "example_comments": []
-        },
-        "feedback_systems": {
-            "keywords": ["feedback", "feedback system", "suggestion box", "input", "survey", 
-                         "regular feedback", "feedback mechanism", "opinion", "voice concerns"],
-            "comments": [],
-            "display_name": "Feedback Systems",
             "example_comments": []
         }
     }
@@ -881,11 +1046,21 @@ def insights_solutions():
             
         # Check for themes in this comment
         for theme in theme_contexts.keys():
-            if f"theme_{theme}" in comment and comment[f"theme_{theme}"] == 1:
-                if has_solution:
-                    theme_contexts[theme]['solutions'].append(text)
-                else:
-                    theme_contexts[theme]['problems'].append(text)
+            theme_key = f"theme_{theme}"
+            if theme_key in comment:
+                # Handle different data types for theme values
+                theme_value = comment[theme_key]
+                if isinstance(theme_value, str):
+                    try:
+                        theme_value = int(float(theme_value))
+                    except (ValueError, TypeError):
+                        theme_value = 0
+                
+                if theme_value == 1:
+                    if has_solution:
+                        theme_contexts[theme]['solutions'].append(text)
+                    else:
+                        theme_contexts[theme]['problems'].append(text)
         
         # Classify into specific solution categories
         for solution_key, solution_data in specific_solutions.items():
@@ -899,15 +1074,23 @@ def insights_solutions():
                             solution_data["example_comments"].append(clean_text)
                     break  # Only count once per comment per solution category
     
-    # Create a tab-based interface for different insights
-    tabs = st.tabs(["Comment Clustering", "Key Solutions", "Theme Analysis", "Implementation Plan"])
+    # Count problems and solutions by theme
+    theme_counts = {}
+    for theme, contexts in theme_contexts.items():
+        theme_counts[theme] = {
+            "problems": len(contexts["problems"]),
+            "solutions": len(contexts["solutions"]),
+            "total": len(contexts["problems"]) + len(contexts["solutions"])
+        }
+    
+    # Sort themes by total mentions
+    sorted_themes = sorted(theme_counts.keys(), key=lambda x: theme_counts[x]["total"], reverse=True)
+    
+    # Create a tab-based interface for different insights - removed Implementation Plan
+    tabs = st.tabs(["Key Solutions", "Theme Analysis", "Theme Categories"])
     
     with tabs[0]:
-        st.header("Comment Clustering by Solution Type")
-        st.markdown("""
-        This analysis identifies specific types of solutions mentioned in staff comments and shows exactly 
-        how many comments mention each solution approach.
-        """)
+        st.header("Key Solutions from Staff Feedback")
         
         # Count and sort the specific solutions by frequency
         solution_counts = []
@@ -923,168 +1106,125 @@ def insights_solutions():
         # Sort solutions by count
         solution_counts = sorted(solution_counts, key=lambda x: x["count"], reverse=True)
         
-        # Create two columns
-        col1, col2 = st.columns([3, 2])
-        
-        with col1:
-            # Create a bar chart of solution counts
-            if solution_counts:
-                solution_df = pd.DataFrame(solution_counts)
-                
-                fig = px.bar(
-                    solution_df,
-                    x="solution",
-                    y="count",
-                    title="Number of Comments Mentioning Each Solution Type",
-                    labels={"solution": "Solution Type", "count": "Number of Comments"},
-                    color="count",
-                    color_continuous_scale="Viridis"
-                )
-                fig.update_layout(xaxis_tickangle=-45)
-                st.plotly_chart(fig, use_container_width=True)
-                
-                # Display the data table
-                st.subheader("Solution Frequency Table")
-                st.dataframe(
-                    solution_df[["solution", "count"]].rename(
-                        columns={"solution": "Solution Type", "count": "Number of Comments"}
-                    )
-                )
-            else:
-                st.info("No specific solutions identified in the comments.")
-        
-        with col2:
-            # Show insights based on the most mentioned solutions
-            st.subheader("Key Insights")
-            
-            if solution_counts:
-                top_solutions = solution_counts[:3]
-                st.markdown("**Top mentioned solutions:**")
-                
-                for i, sol in enumerate(top_solutions):
-                    st.markdown(f"**{i+1}. {sol['solution']} ({sol['count']} comments)**")
-                    
-                # Show common trends
-                st.markdown("### Common Themes in Solutions")
-                st.markdown("""
-                Based on the clustering analysis, staff suggestions focus on:
-                """)
-                
-                # Group solutions into broader categories for insight
-                communication_count = sum(s["count"] for s in solution_counts if any(x in s["key"] for x in ["communication", "listening", "feedback"]))
-                training_count = sum(s["count"] for s in solution_counts if any(x in s["key"] for x in ["training", "development"]))
-                accountability_count = sum(s["count"] for s in solution_counts if any(x in s["key"] for x in ["accountability", "enforcement", "zero_tolerance"]))
-                culture_count = sum(s["count"] for s in solution_counts if any(x in s["key"] for x in ["culture", "lead_by_example", "inclusion", "recognition"]))
-                
-                insights = [
-                    {"category": "Communication", "count": communication_count},
-                    {"category": "Training & Development", "count": training_count},
-                    {"category": "Accountability", "count": accountability_count},
-                    {"category": "Culture & Recognition", "count": culture_count}
-                ]
-                
-                insights = sorted(insights, key=lambda x: x["count"], reverse=True)
-                
-                for insight in insights:
-                    if insight["count"] > 0:
-                        st.markdown(f"• **{insight['category']}**: {insight['count']} comments")
-        
-        # Display sample comments for each solution type
-        st.subheader("Sample Comments by Solution Type")
-        
-        # Use expanders for each solution type to keep the UI clean
-        for sol in solution_counts:
-            sol_key = sol["key"]
-            sol_data = specific_solutions[sol_key]
-            
-            with st.expander(f"{sol_data['display_name']} ({sol['count']} comments)"):
-                if sol_data["example_comments"]:
-                    for i, comment in enumerate(sol_data["example_comments"]):
-                        st.markdown(f"**Example {i+1}:** _{comment.capitalize()}_")
-                else:
-                    st.info("No example comments available.")
-    
-    with tabs[1]:
-        st.header("Key Solutions from Staff Feedback")
-        st.markdown("""
-        Staff have provided valuable suggestions on improving workplace civility. 
-        Below are the key solutions extracted from their feedback, organized by approach:
+        # Display solutions overview
+        st.markdown(f"""
+        This analysis identifies specific types of solutions mentioned across all {len(all_comments)} comments.
+        The chart below shows exactly how many comments mention each type of solution.
         """)
         
-        # Display most promising solution areas
-        solution_categories = {
-            "Communication Improvements": [s for s in suggestions if any(x in s["text"].lower() for x in ["communication", "talk", "listen", "speak", "meeting", "discuss"])],
-            "Leadership Actions": [s for s in suggestions if any(x in s["text"].lower() for x in ["leader", "manager", "management", "supervisor", "lead by example", "role model"])],
-            "Training & Development": [s for s in suggestions if any(x in s["text"].lower() for x in ["train", "workshop", "course", "learn", "educat", "develop", "skill"])],
-            "Policy & Enforcement": [s for s in suggestions if any(x in s["text"].lower() for x in ["policy", "procedure", "rule", "guideline", "enforce", "consequence", "report"])],
-            "Recognition & Appreciation": [s for s in suggestions if any(x in s["text"].lower() for x in ["recogni", "appreciat", "reward", "incentiv", "thank", "acknowledge", "praise"])],
-        }
-        
-        # Display solution categories with example comments
-        for category, comments in solution_categories.items():
-            if not comments:
-                continue
+        # Display top solutions as a bar chart
+        if solution_counts:
+            solution_df = pd.DataFrame(solution_counts)
+            
+            # Calculate percentage of total comments
+            total_comments = len(all_comments)
+            solution_df["percentage"] = (solution_df["count"] / total_comments * 100).round(1)
+            
+            fig = px.bar(
+                solution_df,
+                x="solution",
+                y="count",
+                title=f"Number of Comments Mentioning Each Solution Type",
+                labels={"solution": "Solution Type", "count": "Number of Comments"},
+                color="count",
+                color_continuous_scale="Viridis",
+                text="percentage"  # Show percentage on bars
+            )
+            fig.update_traces(texttemplate='%{text}%', textposition='outside')
+            fig.update_layout(xaxis_tickangle=-45)
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # Display the top solution categories with example comments
+            st.subheader("Top Solution Categories with Examples")
+            
+            # Show the top 5 solution categories
+            for i, row in solution_df.head(5).iterrows():
+                category = row["solution"]
+                count = row["count"]
+                percentage = row["percentage"]
+                key = row["key"]
                 
-            st.subheader(category)
-            
-            # Create bullet points of solution suggestions
-            solutions_shown = set()
-            bullet_points = []
-            
-            for comment in sorted(comments, key=lambda x: x["score"], reverse=True)[:5]:  # Top 5 by sentiment
-                # Clean and format the comment text for display
-                text = comment["text"].capitalize().strip()
+                st.markdown(f"### {i+1}. {category}: {count} comments ({percentage}%)")
                 
-                # Try to extract just the solution part (often comes after "should", "could", etc.)
-                for phrase in ["should", "could", "would", "need to", "important to"]:
-                    if phrase in text.lower():
-                        parts = text.lower().split(phrase, 1)
-                        if len(parts) > 1:
-                            solution_text = phrase + parts[1]
-                            # Convert to title case and clean up
-                            solution_text = solution_text.capitalize().strip()
-                            if len(solution_text) > 20 and solution_text not in solutions_shown:
-                                bullet_points.append(f"• {solution_text}")
-                                solutions_shown.add(solution_text)
-                                break
-                
-                # If no solution extraction worked, use the full comment
-                if not bullet_points or (len(bullet_points) < 2 and len(solutions_shown) < 2):
-                    if text not in solutions_shown and len(text) < 200:  # Avoid extremely long comments
-                        bullet_points.append(f"• {text}")
-                        solutions_shown.add(text)
+                # Show sample comments for this category
+                examples = specific_solutions[key]["example_comments"]
+                if examples:
+                    for j, example in enumerate(examples):
+                        st.markdown(f"**Example {j+1}:** _{example.capitalize()}_")
+                        
+                    # Add a divider between categories
+                    st.markdown("---")
+                else:
+                    st.info("No example comments available for this category.")
             
-            # Display the bullet points
-            for point in bullet_points[:5]:  # Limit to top 5
-                st.markdown(point)
-            
-            # Add a divider between categories
-            st.markdown("---")
+            # Display the data table
+            with st.expander("View complete solution frequency data"):
+                st.dataframe(
+                    solution_df[["solution", "count", "percentage"]].rename(
+                        columns={"solution": "Solution Type", "count": "Number of Comments", "percentage": "% of All Comments"}
+                    )
+                )
+        else:
+            st.info("No specific solutions identified in the comments.")
     
-    with tabs[2]:
-        st.header("Theme-Based Analysis")
+    with tabs[1]:
+        st.header("Theme Analysis")
         
-        # Create a deeper analysis of the most relevant themes
-        theme_descriptions = {
-            "respect_communication": "How staff communicate with each other",
-            "workplace_culture": "The overall culture and atmosphere",
-            "leadership_behavior": "How leaders and managers behave",
-            "workplace_policies": "Formal policies and procedures",
-            "training_development": "Training and skill development",
-            "recognition_appreciation": "Recognition and appreciation of staff",
-        }
+        # Get themes summary
+        themes = get_themes_summary()
         
-        # Count problems and solutions by theme
-        theme_counts = {}
-        for theme, contexts in theme_contexts.items():
-            theme_counts[theme] = {
-                "problems": len(contexts["problems"]),
-                "solutions": len(contexts["solutions"]),
-                "total": len(contexts["problems"]) + len(contexts["solutions"])
-            }
+        if not themes:
+            st.error("No theme data available. Please ensure theme detection is working properly.")
+            st.stop()
+            
+        # Create a DataFrame from the themes data
+        theme_data = []
+        for theme, count in themes.items():
+            # Skip themes containing "comment"
+            if "comment" in theme.lower():
+                continue
+            
+            # Clean up theme name for display
+            display_name = theme.replace("theme_", "").replace("_", " ").title()
+            
+            theme_data.append({
+                "theme": display_name,
+                "original_theme": theme,
+                "count": count
+            })
         
-        # Sort themes by total mentions
-        sorted_themes = sorted(theme_counts.keys(), key=lambda x: theme_counts[x]["total"], reverse=True)
+        if not theme_data:
+            st.warning("No valid themes found after filtering.")
+            st.stop()
+            
+        theme_df = pd.DataFrame(theme_data)
+        theme_df = theme_df.sort_values("count", ascending=False)
+        
+        # Display the top 5 themes
+        st.subheader("Top 5 Themes by Frequency")
+        
+        # Calculate percentage of total comments
+        total_comments = len(all_comments)
+        theme_df["percentage"] = (theme_df["count"] / total_comments * 100).round(1)
+        
+        # Create a bar chart for the top 5 themes
+        top5_df = theme_df.head(5)
+        fig = px.bar(
+            top5_df,
+            x="theme",
+            y="count",
+            title=f"Most Frequently Mentioned Themes",
+            labels={"theme": "Theme", "count": "Number of Comments"},
+            color="count",
+            color_continuous_scale="Blues",
+            text="percentage"  # Show percentage on bars
+        )
+        fig.update_traces(texttemplate='%{text}%', textposition='outside')
+        fig.update_layout(xaxis_tickangle=-45)
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Display theme-solution analysis 
+        st.subheader("Theme-Solution Analysis")
         
         # Create a summary of key themes with problem/solution breakdown
         theme_summary_data = []
@@ -1099,12 +1239,14 @@ def insights_solutions():
                 })
         
         if theme_summary_data:
-            # Create a DataFrame for visualization
-            theme_df = pd.DataFrame(theme_summary_data)
+            # Create a DataFrame and sort by total mentions
+            theme_summary_df = pd.DataFrame(theme_summary_data)
+            theme_summary_df = theme_summary_df.sort_values("total", ascending=False)
             
-            # Display stacked bar chart of problems vs solutions by theme
+            # Display stacked bar chart of problems vs solutions for top 5 themes
+            top5_summary_df = theme_summary_df.head(5)
             fig = px.bar(
-                theme_df,
+                top5_summary_df,
                 x="theme",
                 y=["problems", "solutions"],
                 title="Problems vs. Solutions Mentioned by Theme",
@@ -1114,111 +1256,211 @@ def insights_solutions():
             fig.update_layout(xaxis_tickangle=-45)
             st.plotly_chart(fig, use_container_width=True)
         
-        # Show problem-solution analysis for top 3 themes
-        for theme in sorted_themes[:3]:
-            if theme_counts[theme]["total"] == 0:
-                continue
+            # Show problem-solution analysis for top 5 themes
+            st.subheader("Detailed Analysis of Top 5 Themes")
+            
+            for theme in sorted_themes[:5]:
+                if theme_counts[theme]["total"] == 0:
+                    continue
+                    
+                readable_theme = theme.replace("_", " ").title()
                 
-            readable_theme = theme.replace("_", " ").title()
-            st.subheader(f"{readable_theme} - Problems & Solutions")
-            
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.markdown("**Key Problems:**")
-                if theme_contexts[theme]["problems"]:
-                    # Extract the most representative problems
-                    representative_problems = list(set([p[:100] + "..." if len(p) > 100 else p for p in theme_contexts[theme]["problems"]]))
-                    for problem in representative_problems[:3]:  # Show top 3
-                        st.markdown(f"• {problem.capitalize()}")
-                else:
-                    st.info("No specific problems identified")
-            
-            with col2:
-                st.markdown("**Proposed Solutions:**")
-                if theme_contexts[theme]["solutions"]:
-                    # Extract the most representative solutions
-                    representative_solutions = list(set([s[:100] + "..." if len(s) > 100 else s for s in theme_contexts[theme]["solutions"]]))
-                    for solution in representative_solutions[:3]:  # Show top 3
-                        st.markdown(f"• {solution.capitalize()}")
-                else:
-                    st.info("No specific solutions proposed")
-    
-    with tabs[3]:
-        st.header("Implementation Plan")
+                with st.expander(f"{readable_theme} - {theme_counts[theme]['total']} mentions"):
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        st.markdown("**Key Problems:**")
+                        if theme_contexts[theme]["problems"]:
+                            # Extract the most representative problems
+                            representative_problems = list(set([p[:100] + "..." if len(p) > 100 else p for p in theme_contexts[theme]["problems"]]))
+                            for problem in representative_problems[:3]:  # Show top 3
+                                st.markdown(f"• {problem.capitalize()}")
+                        else:
+                            st.info("No specific problems identified")
+                    
+                    with col2:
+                        st.markdown("**Proposed Solutions:**")
+                        if theme_contexts[theme]["solutions"]:
+                            # Extract the most representative solutions
+                            representative_solutions = list(set([s[:100] + "..." if len(s) > 100 else s for s in theme_contexts[theme]["solutions"]]))
+                            for solution in representative_solutions[:3]:  # Show top 3
+                                st.markdown(f"• {solution.capitalize()}")
+                        else:
+                            st.info("No specific solutions proposed")
+        else:
+            st.info("No theme analysis data available.")
+
+    # Add a new tab for theme categories and detailed analysis
+    with tabs[2]:
+        st.header("Theme Categories and Insights")
         
-        # Create an implementation framework based on the analysis
-        st.markdown("""
-        Based on the analysis of staff feedback, here is a structured implementation plan 
-        to address civility and respect issues in the workplace:
-        """)
-        
-        implementation_steps = [
-            {
-                "phase": "Immediate Actions (0-30 days)",
-                "actions": [
-                    "Communicate leadership commitment to addressing the issues",
-                    "Establish clear reporting mechanisms for incidents",
-                    "Hold team meetings to discuss expectations for workplace behavior",
-                ]
+        # Define theme category groupings
+        theme_categories = {
+            "Communication & Transparency": {
+                "themes": ["respect_communication", "listening"],
+                "description": "Themes related to how information is shared and feedback is received",
+                "examples": []
             },
-            {
-                "phase": "Short-term Improvements (1-3 months)",
-                "actions": [
-                    "Develop/update workplace civility policies",
-                    "Implement initial training sessions on respectful communication",
-                    "Create a recognition program for positive behaviors",
-                ]
+            "Leadership & Management": {
+                "themes": ["leadership_behavior", "lead_by_example"],
+                "description": "Themes focused on leadership styles, behaviors, and role modeling",
+                "examples": []
             },
-            {
-                "phase": "Medium-term Solutions (3-6 months)",
-                "actions": [
-                    "Roll out comprehensive training program for all staff",
-                    "Establish ongoing feedback mechanisms",
-                    "Develop accountability measures for managers",
-                ]
+            "Culture & Team Environment": {
+                "themes": ["workplace_culture", "culture_improvement", "teambuilding", "respect_promotion"],
+                "description": "Themes about the overall work atmosphere and team dynamics",
+                "examples": []
             },
-            {
-                "phase": "Long-term Culture Change (6-12 months)",
-                "actions": [
-                    "Integrate civility metrics into performance evaluations",
-                    "Create peer support networks",
-                    "Regular assessment and adjustment of initiatives",
-                ]
+            "Policies & Accountability": {
+                "themes": ["workplace_policies", "policy_enforcement", "accountability", "reporting_mechanism"],
+                "description": "Themes related to guidelines, procedures, and consequences for behavior",
+                "examples": []
+            },
+            "Development & Recognition": {
+                "themes": ["training_development", "staff_training", "management_training", "recognition_appreciation", "recognition_programs"],
+                "description": "Themes about staff development, training, and recognition efforts",
+                "examples": []
+            },
+            "Diversity & Inclusion": {
+                "themes": ["inclusion_diversity"],
+                "description": "Themes focused on creating an inclusive environment for all staff",
+                "examples": []
             }
-        ]
+        }
         
-        # Display implementation phases
-        for phase in implementation_steps:
-            st.subheader(phase["phase"])
-            for action in phase["actions"]:
-                st.markdown(f"• {action}")
+        # Collect comments for each category
+        category_counts = {}
+        category_comments = {}
+        
+        for category, data in theme_categories.items():
+            category_comments[category] = []
+            # Gather all comments from related themes
+            for theme in data["themes"]:
+                if theme in theme_contexts:
+                    # Add problems
+                    for comment in theme_contexts[theme]["problems"]:
+                        category_comments[category].append({"text": comment, "type": "problem"})
+                    # Add solutions
+                    for comment in theme_contexts[theme]["solutions"]:
+                        category_comments[category].append({"text": comment, "type": "solution"})
             
-            # Add custom actions based on actual feedback
-            if phase["phase"] == "Immediate Actions (0-30 days)":
-                # Look for immediate actions in the suggestions
-                immediate_suggestions = [s for s in suggestions if any(x in s["text"].lower() for x in ["immediately", "urgent", "right away", "as soon as", "start by"])]
-                if immediate_suggestions:
-                    for sugg in immediate_suggestions[:2]:
-                        cleaned_text = sugg["text"].capitalize().strip()
-                        if len(cleaned_text) < 100:  # Avoid very long suggestions
-                            st.markdown(f"• {cleaned_text}")
+            # Count unique comments in this category
+            unique_texts = set([c["text"] for c in category_comments[category]])
+            category_counts[category] = len(unique_texts)
             
-            st.markdown("---")
+            # Find most representative examples (looking for longer, more detailed comments)
+            if unique_texts:
+                sorted_examples = sorted(list(unique_texts), key=len, reverse=True)
+                # Take diverse examples (different starting words)
+                examples = []
+                for ex in sorted_examples:
+                    # Only consider substantial comments
+                    if len(ex) < 50:
+                        continue
+                    # Avoid redundant examples
+                    unique_start = True
+                    for existing in examples:
+                        if ex[:20].lower() == existing[:20].lower():
+                            unique_start = False
+                            break
+                    if unique_start and len(examples) < 3:
+                        examples.append(ex)
+                
+                theme_categories[category]["examples"] = examples[:3]  # Up to 3 examples
         
-        # Add a downloadable resource section
-        st.subheader("Resources & Tools")
-        st.markdown("""
-        The following resources can support implementation:
+        # Create visualization of theme categories
+        category_data = []
+        for category, count in category_counts.items():
+            if count > 0:
+                category_data.append({
+                    "category": category,
+                    "count": count
+                })
         
-        • **Workplace Civility Policy Template**
-        • **Communication Training Materials**
-        • **Incident Reporting Form**
-        • **Manager's Guide to Addressing Incivility**
-        • **Recognition Program Framework**
-        
-        *Note: These would be developed based on the specific needs identified in the feedback.*
-        """)
+        if category_data:
+            category_df = pd.DataFrame(category_data)
+            category_df = category_df.sort_values("count", ascending=False)
+            
+            # Add percentage
+            total_categorized = category_df["count"].sum()
+            category_df["percentage"] = (category_df["count"] / total_comments * 100).round(1)
+            
+            # Create a pie chart for categories
+            fig = px.pie(
+                category_df,
+                values="count",
+                names="category",
+                title="Distribution of Themes by Category",
+                color_discrete_sequence=px.colors.qualitative.Pastel
+            )
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # Create a table of categories with counts
+            st.subheader("Theme Categories Summary")
+            category_table = category_df.copy()
+            category_table.columns = ["Theme Category", "Comment Count", "% of Total"]
+            st.table(category_table)
+            
+            # Show detailed analysis for each category
+            st.subheader("Detailed Analysis by Category")
+            
+            for category in category_df["category"]:
+                data = theme_categories[category]
+                with st.expander(f"{category} ({category_counts[category]} comments)"):
+                    st.markdown(f"**{data['description']}**")
+                    
+                    # List the themes in this category
+                    theme_list = [t.replace("_", " ").title() for t in data["themes"]]
+                    st.markdown(f"**Includes themes:** {', '.join(theme_list)}")
+                    
+                    # Display illustrative quotes with clean formatting
+                    st.markdown("### Representative Quotes")
+                    
+                    if data["examples"]:
+                        for i, example in enumerate(data["examples"]):
+                            # Clean and format the quote
+                            clean_quote = example.capitalize().strip()
+                            
+                            # Create a nice quote box with styling
+                            st.markdown(f"""
+                            <div style="margin: 10px 0; padding: 15px; border-left: 5px solid #4287f5; background-color: #f5f5f5; border-radius: 4px;">
+                                <p style="font-style: italic; margin: 0; color: #333; font-size: 16px;">"{clean_quote}"</p>
+                            </div>
+                            """, unsafe_allow_html=True)
+                    else:
+                        st.info("No representative quotes available for this category.")
+                    
+                    # Show common themes in the category
+                    st.markdown("### Key Insights")
+                    
+                    # Count solution vs problem comments
+                    solution_comments = [c for c in category_comments[category] if c["type"] == "solution"]
+                    problem_comments = [c for c in category_comments[category] if c["type"] == "problem"]
+                    
+                    solution_pct = len(solution_comments) / max(len(category_comments[category]), 1) * 100
+                    st.markdown(f"- **Solution-Problem Ratio**: {len(solution_comments)} solutions / {len(problem_comments)} problems ({solution_pct:.1f}% solutions)")
+                    
+                    # Suggest areas for further investigation
+                    if solution_pct < 30:
+                        st.markdown("- **Area for Investigation**: Low percentage of solution-oriented comments suggests staff may need more support in developing solutions.")
+                    elif solution_pct > 70:
+                        st.markdown("- **Strength**: High percentage of solution-oriented comments indicates staff are actively engaged in problem-solving.")
+                    
+                    # Add specific insights for each category
+                    if category == "Communication & Transparency":
+                        st.markdown("- Consider establishing clear communication channels and feedback mechanisms")
+                    elif category == "Leadership & Management":
+                        st.markdown("- Focus on leadership development and role modeling of respectful behaviors")
+                    elif category == "Culture & Team Environment":
+                        st.markdown("- Promote team-building activities and positive recognition programs")
+                    elif category == "Policies & Accountability":
+                        st.markdown("- Review and strengthen policies for addressing disrespectful behavior")
+                    elif category == "Development & Recognition":
+                        st.markdown("- Invest in training on respectful communication and conflict resolution")
+                    elif category == "Diversity & Inclusion":
+                        st.markdown("- Ensure all staff feel valued and included through inclusive practices")
+        else:
+            st.info("No theme categories with sufficient data available.")
 
 # Main code section starts here
 # Now the functions are defined before they are called

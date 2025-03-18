@@ -1,6 +1,6 @@
-# Instructions for Running the Employee Feedback Analysis Tool
+# Instructions for Running the Staff Feedback Analysis Tool
 
-This document provides step-by-step instructions for setting up and running the Employee Feedback Analysis Tool.
+This document provides step-by-step instructions for setting up and running the Staff Feedback Analysis Tool.
 
 ## Prerequisites
 
@@ -15,7 +15,7 @@ If you're using Git:
 
 ```bash
 git clone <repository-url>
-cd employee-feedback-analysis
+cd staff-feedback-analysis
 ```
 
 ### 2. Create and Activate a Virtual Environment
@@ -63,12 +63,12 @@ The application consists of two components:
 1. The FastAPI backend (API)
 2. The Streamlit frontend (Dashboard)
 
-### Method 1: Run Using the Main Script
+### Method 1: Run Using the Run Script
 
-The simplest way to run both components is to use the main script:
+The simplest way to run both components is to use the run script:
 
 ```bash
-python main.py
+python run.py
 ```
 
 This will start both the API server and dashboard, and open a browser window automatically.
@@ -91,6 +91,61 @@ streamlit run dashboard.py
 
 The dashboard will be available at http://localhost:8501.
 
+## Using the Dashboard
+
+### 1. Upload Data
+
+- Click "Upload Staff Feedback Data" in the sidebar
+- Select a CSV or Excel file containing free-text comments
+- The tool can process both:
+  - Multi-question surveys with department information
+  - Single-question formats (like NQPS Q4) without explicit department data
+- Click "Process Data" to analyze the comments
+
+### 2. Explore the Dashboard Pages
+
+The dashboard offers several pages accessible from the sidebar:
+
+- **Home**: Overview of sentiment distribution and key themes
+- **Department Details**: Department-specific analysis (if applicable)
+- **Comment Explorer**: Browse and filter individual comments
+- **Themes Analysis**: Detailed analysis of detected themes, including sentiment distribution by theme
+- **Insights & Solutions**: Actionable recommendations based on staff feedback
+- **About**: Information about the tool and how it works
+
+### 3. Theme Analysis Page
+
+The Theme Analysis page now has a tabbed interface with three sections:
+
+- **Theme Distribution**: Shows the frequency of each theme in the feedback
+- **Theme Sentiment Analysis**: Analyzes sentiment distribution for each theme (see details below)
+- **Civility Insights**: Focuses specifically on civility and respect-related themes
+
+#### Using the Theme Sentiment Analysis Tab
+
+This feature provides deeper insights into how staff feel about each detected theme:
+
+1. Select the "Theme Sentiment Analysis" tab on the Themes Analysis page
+2. The system will analyze up to 100 comments for each of the top 10 themes
+3. A progress bar will show the analysis progress
+4. Once complete, you'll see:
+   - A stacked bar chart showing positive/neutral/negative sentiment distribution for each theme
+   - A grouped bar chart for easier comparison across themes
+   - A detailed data table with exact percentages and sentiment ratios
+   - Key insights highlighting the most positive and most negative themes
+   - Recommended focus areas based on the sentiment distribution
+
+This analysis helps you understand not just which themes are most frequent, but whether comments about each theme are primarily positive or negative, enabling more targeted action planning.
+
+### 4. Insights & Solutions Page
+
+The Insights & Solutions page provides:
+
+- **Key Solutions**: Categorized solutions mentioned in comments with exact counts
+- **Theme Analysis**: Top 5 themes with detailed breakdown of problems and proposed solutions
+- **Theme Categories**: Thematic grouping of related themes with representative quotes
+- Each solution category includes examples from actual comments
+
 ## Testing the Application
 
 ### 1. Component Testing
@@ -101,16 +156,29 @@ To verify that all components are working correctly:
 python test_components.py
 ```
 
-This will run tests for the preprocessing module, NLP pipeline, predictive model, and API connection.
+This will run tests for the preprocessing module, NLP pipeline, and API connection.
 
 ### 2. Process Sample Data
 
-A sample dataset is included in the repository for testing:
+Sample datasets are included in the repository for testing:
 
 1. Start the application using one of the methods above
 2. Open the dashboard in your browser
-3. Upload the `sample_data.csv` file
+3. Upload either:
+   - `sample_data.csv` for multi-question format
+   - `NQPS Q4 2024_2025 narrative question.xlsx` for single-question format
 4. Explore the analysis results
+
+## Maintaining Documentation
+
+The project includes a development summary document that tracks changes and decisions:
+
+- View the current development summary: `development_summary.md`
+- Update the summary with new changes:
+  ```bash
+  python update_dev_summary.py
+  ```
+  When prompted, enter details about the latest changes.
 
 ## Troubleshooting
 
@@ -130,7 +198,16 @@ A sample dataset is included in the repository for testing:
 
 4. **Dashboard cannot connect to API**
    - Ensure the API server is running
-   - Check that the API_URL in config.py is correct
+   - Check that the API_URL in dashboard.py is correct
+
+5. **No comments appearing in analysis**
+   - Check your data format - ensure it has a column with free-text comments
+   - For single-question formats, check that the question text is properly detected
+
+6. **Theme Sentiment Analysis is slow**
+   - This is normal for large datasets as it needs to process comments for each theme
+   - The progress bar will show analysis progress
+   - You can reduce the analysis time by limiting comment size in the code
 
 ## Getting Help
 
@@ -138,4 +215,5 @@ If you encounter any issues not covered in this guide, please:
 
 1. Check the logs in the terminal window
 2. Refer to the README.md file for additional information
-3. Submit an issue in the project repository 
+3. Check the development_summary.md for recent changes
+4. Submit an issue in the project repository 
