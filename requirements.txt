@@ -1,3 +1,4 @@
+# Core dependencies
 setuptools>=65.5.0
 wheel>=0.38.0
 pandas==2.0.3
@@ -14,6 +15,28 @@ requests==2.31.0
 openpyxl==3.1.2
 python-dotenv==1.0.0
 python-multipart==0.0.6
+
+# Export Functionality
 fpdf==1.7.2
 python-pptx==0.6.21
-https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.6.0/en_core_web_sm-3.6.0-py3-none-any.whl 
+kaleido==0.2.1  # For plotly static image export
+Pillow>=9.4.0
+jinja2>=3.1.2  # For HTML template rendering
+textblob>=0.17.1
+gensim>=4.3.0
+wordcloud>=1.8.2.2
+
+# spaCy model
+https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.6.0/en_core_web_sm-3.6.0-py3-none-any.whl
+
+# NLP Libraries
+nltk>=3.8.1
+scikit-learn>=1.2.0
+spacy>=3.5.0
+textblob>=0.17.1
+gensim>=4.3.0
+wordcloud>=1.8.2.2
+
+# Optional - uncomment if needed
+# torch>=1.13.1  # For advanced NLP capabilities
+# transformers>=4.26.0  # For BERT and other transformer models 

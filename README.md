@@ -11,6 +11,7 @@ This tool processes unstructured staff feedback (free-text comments) to:
 - Analyze sentiment distribution by theme
 - Visualize results in an interactive dashboard
 - Provide actionable insights for improving workplace culture
+- Export analysis in static HTML, PDF, and PowerPoint formats
 
 ## Key Components
 
@@ -41,6 +42,12 @@ This tool processes unstructured staff feedback (free-text comments) to:
 - Department-level drilldowns
 - Theme Sentiment Analysis with positive/neutral/negative breakdowns
 - Dedicated Insights & Solutions page for actionable recommendations
+
+### 5. Export Functionality
+- Static HTML exports for web sharing
+- PDF reports with key visualizations and actionable insights
+- PowerPoint presentations for stakeholder meetings
+- Automated report generation with comprehensive data
 
 ## Installation
 
@@ -107,6 +114,44 @@ The Theme Sentiment Analysis feature provides deeper insights into how staff fee
 
 This feature helps you understand not just what themes are mentioned, but whether staff comments about each theme are primarily positive or negative, enabling more targeted action planning.
 
+### Exporting Analysis Results
+
+The tool provides multiple export options to share analysis results with stakeholders:
+
+1. **Static HTML Exports**:
+   ```
+   python export_dashboard.py --data your_data.csv --formats html
+   ```
+   - Creates standalone HTML files that can be viewed in any web browser
+   - Includes interactive visualizations
+   - Generated in the `static_exports` directory
+
+2. **PDF Reports**:
+   ```
+   python export_dashboard.py --data your_data.csv --formats pdf
+   ```
+   - Generates a comprehensive PDF report with all visualizations
+   - Includes data tables and actionable insights
+   - Perfect for printing and distributing in meetings
+   - Saved in the `reports` directory
+
+3. **PowerPoint Presentations**:
+   ```
+   python export_dashboard.py --data your_data.csv --formats pptx
+   ```
+   - Creates a ready-to-present PowerPoint deck
+   - Includes slides for all key visualizations
+   - Features actionable insights and next steps
+   - Ideal for stakeholder presentations
+
+4. **Export All Formats**:
+   ```
+   python export_dashboard.py --data your_data.csv --formats all
+   ```
+   - Generates all export formats in one command
+
+All exports capture the full analysis including sentiment distribution, theme analysis, and actionable insights, making it easy to share findings without requiring access to the dashboard.
+
 ## Project Structure
 
 ```
@@ -117,6 +162,9 @@ staff-feedback-analysis/
 ├── run.py                # Integration script to run both API and dashboard
 ├── preprocessing.py      # Data loading and cleaning
 ├── nlp_pipeline.py       # Text analysis and theme detection
+├── export_static.py      # Static HTML export functionality
+├── export_reports.py     # PDF and PowerPoint export functionality
+├── export_dashboard.py   # Combined export script for all formats
 ├── development_summary.md # Documentation of development decisions and updates
 ├── update_dev_summary.py # Script to update development summary
 ├── requirements.txt      # Dependencies

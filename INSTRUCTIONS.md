@@ -146,6 +146,55 @@ The Insights & Solutions page provides:
 - **Theme Categories**: Thematic grouping of related themes with representative quotes
 - Each solution category includes examples from actual comments
 
+### 5. Exporting Analysis Results
+
+The tool now includes comprehensive export functionality to share analysis results with stakeholders who may not have access to the live dashboard.
+
+#### Export Options
+
+1. **Static HTML Exports**
+   - Standalone web pages with interactive visualizations
+   - Can be viewed in any web browser without installing software
+   - Perfect for sharing via email or hosting on an intranet
+
+2. **PDF Reports**
+   - Professional PDF document with all visualizations and metrics
+   - Includes data tables, charts, and actionable insights
+   - Ideal for printing and distributing in meetings
+
+3. **PowerPoint Presentations**
+   - Ready-to-present slides with key visualizations
+   - Organized presentation flow from overview to recommendations
+   - Easily customizable for executive presentations
+
+#### How to Generate Exports
+
+Run the export script with your data file:
+
+```bash
+python export_dashboard.py --data your_data_file.csv
+```
+
+Additional options:
+- `--output-dir my_exports`: Specify a custom output directory
+- `--formats html`: Export only HTML files
+- `--formats pdf`: Export only PDF report
+- `--formats pptx`: Export only PowerPoint presentation
+- `--formats all`: Export all formats (default)
+
+Example:
+```bash
+python export_dashboard.py --data data/staff_feedback.csv --output-dir exports --formats all
+```
+
+#### Accessing the Exports
+
+After running the export script, you'll find:
+- HTML files in the `static_exports` directory (or custom directory/html)
+- PDF and PowerPoint files in the `reports` directory (or custom directory/reports)
+
+The HTML exports include an index.html file that links to all visualizations for easy navigation.
+
 ## Testing the Application
 
 ### 1. Component Testing
@@ -208,6 +257,11 @@ The project includes a development summary document that tracks changes and deci
    - This is normal for large datasets as it needs to process comments for each theme
    - The progress bar will show analysis progress
    - You can reduce the analysis time by limiting comment size in the code
+
+7. **Export errors**
+   - Ensure all required packages are installed (`fpdf`, `python-pptx`, `kaleido`, etc.)
+   - Check that you have write permissions in the output directories
+   - For PDF generation issues, ensure your system has proper font support
 
 ## Getting Help
 
