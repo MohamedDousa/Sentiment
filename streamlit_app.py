@@ -16,10 +16,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime
 import traceback
-
-# Import local modules for processing
-from preprocessing import load_data, preprocess_data, group_by_department
-from nlp_pipeline import process_nlp_pipeline, NLPProcessor
+import sys
 
 # Set page configuration
 st.set_page_config(
@@ -28,6 +25,19 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# Handle import errors more gracefully
+try:
+    # Import local modules for processing
+    from preprocessing import load_data, preprocess_data, group_by_department
+    from nlp_pipeline import process_nlp_pipeline, NLPProcessor
+    import_success = True
+except ImportError as e:
+    st.error(f"Error importing required modules: {str(e)}")
+    st.error(f"Python version: {sys.version}")
+    st.error(f"Sys path: {sys.path}")
+    import_success = False
+    st.stop()
 
 # Initialize session state to store data
 if 'data_loaded' not in st.session_state:
