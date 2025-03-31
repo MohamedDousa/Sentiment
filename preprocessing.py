@@ -35,6 +35,19 @@ def load_data(file_path):
     else:
         raise ValueError(f"Unsupported file type: {file_extension}. Please provide a CSV or Excel file.")
 
+    print(f"Original columns: {df.columns.tolist()}")
+    
+    # Handle single-question narrative files (like NQPS Q4)
+    if len(df.columns) == 1 and 'department' not in [col.lower() for col in df.columns]:
+        print(f"Detected single question format: {df.columns[0]}")
+        # Create a dataframe with the narrative answers and assign a generic department
+        comments_column = df.columns[0]
+        processed_df = pd.DataFrame({
+            'department': ['General'] * len(df),
+            'free_text_comments': df[comments_column].values
+        })
+        return processed_df
+    
     # Check if required columns exist (case insensitive)
     required_columns = ['department', 'free-text comments']
     df_columns_lower = [col.lower() for col in df.columns]
@@ -54,7 +67,27 @@ def load_data(file_path):
             if potential_matches:
                 column_mapping[potential_matches[0]] = req_col.replace('-', '_').replace(' ', '_')
             else:
-                raise ValueError(f"Required column '{req_col}' not found in the dataset.")
+                # If we can't find a department column, create one
+                if req_col == 'department':
+                    print(f"Department column not found. Creating a generic department column.")
+                    df['department'] = 'General'
+                    column_mapping['department'] = 'department'
+                # If we can't find a comments column, try to use the first text column
+                elif req_col == 'free-text comments':
+                    # Look for columns that might contain comments
+                    text_columns = [col for col in df.columns if 'comment' in col.lower() 
+                                   or 'feedback' in col.lower() 
+                                   or 'text' in col.lower()
+                                   or 'response' in col.lower()
+                                   or 'answer' in col.lower()]
+                    
+                    if text_columns:
+                        print(f"Using {text_columns[0]} as comments column.")
+                        column_mapping[text_columns[0]] = 'free_text_comments'
+                    else:
+                        # If no suitable column found, just use the first column as comments
+                        print(f"Comment column not found. Using first column: {df.columns[0]}")
+                        column_mapping[df.columns[0]] = 'free_text_comments'
 
     # Rename columns to standardized format
     df = df.rename(columns=column_mapping)

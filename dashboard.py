@@ -194,8 +194,8 @@ if uploaded_file:
 # Navigation
 st.sidebar.header("Navigation")
 page = st.sidebar.radio(
-    "Select Page",
-    ["Dashboard", "Department Details", "Comment Explorer", "About"]
+    "Select a page",
+    ["Home", "Department Details", "Comment Explorer", "Themes Analysis", "Insights & Solutions", "About"]
 )
 
 # Get data from API
@@ -204,8 +204,9 @@ all_risks = get_all_risks()
 departments = get_departments()
 themes_summary = get_themes_summary()
 
-# Main content based on selected page
-if page == "Dashboard":
+# Define all page functions first
+def home_page():
+    """Main dashboard home page"""
     st.title("Staff Feedback Analysis Dashboard")
 
     if not data_summary:
@@ -216,7 +217,7 @@ if page == "Dashboard":
     col1, col2, col3, col4 = st.columns(4)
 
     with col1:
-        st.metric("Total Comments", data_summary.get("total_comments", 0))  # Using .get() with default value
+        st.metric("Total Comments", data_summary.get("total_comments", 0))
 
     with col2:
         st.metric("Departments", data_summary.get("total_departments", 0))
@@ -234,126 +235,6 @@ if page == "Dashboard":
         negative_pct = round(negative_comments / total_comments * 100) if total_comments > 0 else 0
         st.metric("Negative Comments", f"{negative_comments} ({negative_pct}%)")
 
-        st.markdown("---")
-
-    # Risk scores and themes visualization
-    col1, col2 = st.columns(2)
-
-    with col1:
-        st.subheader("Department Risk Scores")
-
-        if all_risks:
-            # First, debug the structure of all_risks to understand what we're dealing with
-            st.write("DEBUG: Examining the structure of risk data")
-            st.write(f"Type of all_risks: {type(all_risks)}")
-            st.write(f"First few items: {str(all_risks)[:200]}..." if all_risks else "No items")
-
-            # Prepare data for risk score visualization based on the type of all_risks
-            risk_data = []
-
-            try:
-                # Case 1: all_risks is a list of dictionaries
-                if isinstance(all_risks, list) and all_risks and isinstance(all_risks[0], dict):
-                    for dept in all_risks:
-                        risk_data.append({
-                            "department": dept.get("department", "Unknown"),
-                            "risk_score": dept.get("risk_score", 0),
-                            "high_risk": "Yes" if dept.get("high_risk", False) else "No"
-                        })
-
-                # Case 2: all_risks is a list of strings (department names)
-                elif isinstance(all_risks, list) and all_risks and isinstance(all_risks[0], str):
-                    for dept_name in all_risks:
-                        # Here we just have department names without risk scores
-                        risk_data.append({
-                            "department": dept_name,
-                            "risk_score": 0,  # Default value
-                            "high_risk": "No"  # Default value
-                        })
-
-                # Case 3: all_risks is a DataFrame
-                elif hasattr(all_risks, 'iterrows'):
-                    for _, row in all_risks.iterrows():
-                        risk_data.append({
-                            "department": row.get("department", "Unknown") if hasattr(row, 'get') else str(row.department),
-                            "risk_score": float(row.get("risk_score", 0)) if hasattr(row, 'get') else float(row.risk_score),
-                            "high_risk": "Yes" if (hasattr(row, 'get') and row.get("high_risk", False)) or
-                                           (hasattr(row, 'high_risk') and row.high_risk) else "No"
-                        })
-
-                # Case 4: all_risks has some other structure we didn't anticipate
-                else:
-                    st.error(f"Unexpected data structure for risk scores: {type(all_risks)}")
-                    st.json(all_risks)  # Display the actual data for debugging
-                    st.stop()
-
-                if risk_data:
-                    risk_df = pd.DataFrame(risk_data)
-                    st.write("DEBUG: Processed risk data")
-                    st.write(risk_df.head())
-
-                    # Create Plotly bar chart
-                    try:
-                        fig = px.bar(
-                            risk_df.sort_values("risk_score", ascending=False).head(10),
-                            x="department",
-                            y="risk_score",
-                            color="high_risk",
-                            color_discrete_map={"Yes": "red", "No": "blue"},
-                            title="Top 10 Departments by Risk Score",
-                            labels={"department": "Department", "risk_score": "Risk Score (1-5)", "high_risk": "High Risk"}
-                        )
-                        st.plotly_chart(fig, use_container_width=True)
-                    except Exception as e:
-                        st.error(f"Error creating risk visualization: {str(e)}")
-                        st.error(f"Traceback: {traceback.format_exc()}")
-                else:
-                    st.info("No valid risk data available to display")
-
-            except Exception as e:
-                st.error(f"Error processing risk data: {str(e)}")
-                st.error(f"Traceback: {traceback.format_exc()}")
-                st.write("Please check the data structure returned from the API.")
-        else:
-            st.info("No risk data available")
-
-    with col2:
-        st.subheader("Top Themes Across All Departments")
-
-        if themes_summary:
-            # Create theme data for visualization
-            theme_data = []
-            for theme, count in themes_summary.items():
-                theme_data.append({
-                    "theme": theme,
-                    "count": count
-                })
-
-            if theme_data:
-                theme_df = pd.DataFrame(theme_data)
-                st.write("DEBUG: Theme data")
-                st.write(theme_df.head())
-
-                # Create Plotly bar chart
-                try:
-                    fig = px.bar(
-                        theme_df.sort_values("count", ascending=False),
-                        x="theme",
-                        y="count",
-                        title="Theme Frequency Across All Departments",
-                        labels={"theme": "Theme", "count": "Occurrence Count"},
-                        color="count",
-                        color_continuous_scale="Viridis"
-                    )
-                    st.plotly_chart(fig, use_container_width=True)
-                except Exception as e:
-                    st.error(f"Error creating theme visualization: {str(e)}")
-                    st.error(f"Traceback: {traceback.format_exc()}")
-            else:
-                st.info("No valid theme data available")
-        else:
-            st.info("No theme data available")
-
     # Sentiment distribution
     st.subheader("Sentiment Distribution")
 
@@ -361,9 +242,6 @@ if page == "Dashboard":
         # Create sentiment data
         sentiment_data = []
         sentiment_dist = data_summary.get("sentiment_distribution", {})
-        
-        st.write("DEBUG: Sentiment distribution data")
-        st.write(sentiment_dist)
 
         for sentiment, count in sentiment_dist.items():
             sentiment_data.append({
@@ -380,7 +258,7 @@ if page == "Dashboard":
                     sentiment_df,
                     values="count",
                     names="sentiment",
-                    title="Sentiment Distribution",
+                    title="Overall Sentiment Distribution",
                     color="sentiment",
                     color_discrete_map={
                         "Positive": "green",
@@ -391,49 +269,95 @@ if page == "Dashboard":
                 st.plotly_chart(fig, use_container_width=True)
             except Exception as e:
                 st.error(f"Error creating sentiment visualization: {str(e)}")
-                st.error(f"Traceback: {traceback.format_exc()}")
         else:
             st.info("No valid sentiment data available")
     else:
         st.info("No sentiment data available")
+    
+    # Theme summary
+    if themes_summary:
+        st.subheader("Top Themes Overview")
+        
+        # Create theme data for visualization
+        theme_data = []
+        for theme, count in themes_summary.items():
+            # Skip themes containing "comment" as they skew results
+            if "comment" in theme.lower():
+                continue
+            theme_data.append({
+                "theme": theme,
+                "count": count
+            })
 
-    # High risk departments table
-    st.subheader("High Risk Departments")
-
-    if all_risks:
-        try:
-            high_risk_depts = [dept for dept in all_risks if isinstance(dept, dict) and dept.get("high_risk", False)]
-
-            if high_risk_depts:
-                # Create table data
-                table_data = []
-                for dept in high_risk_depts:
-                    # Get top themes
-                    top_themes = []
-                    dept_themes = dept.get("top_themes", [])
-                    if isinstance(dept_themes, list):
-                        for theme in dept_themes:
-                            if isinstance(theme, dict):
-                                feature = theme.get("feature", "Unknown")
-                                contribution = theme.get("contribution_pct", 0)
-                                top_themes.append(f"{feature}: {contribution}%")
-
-                    table_data.append({
-                        "Department": dept.get("department", "Unknown"),
-                        "Risk Score": f"{dept.get('risk_score', 0):.1f}",
-                        "Top Contributing Factors": ", ".join(top_themes[:3]) if top_themes else "N/A"
-                    })
-
-                st.table(pd.DataFrame(table_data))
+        if theme_data:
+            theme_df = pd.DataFrame(theme_data)
+            theme_df = theme_df.sort_values("count", ascending=False)
+            
+            # Display top 10 themes
+            fig = px.bar(
+                theme_df.head(10),
+                x="theme",
+                y="count",
+                title="Top 10 Themes (excluding 'comment' themes)",
+                labels={"theme": "Theme", "count": "Occurrence Count"},
+                color="count",
+                color_continuous_scale="Blues"
+            )
+            fig.update_layout(xaxis_tickangle=-45)
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # Highlight themes specific to civility and respect
+            st.subheader("Key Civility & Respect Themes")
+            
+            # Filter for civility/respect related themes
+            respect_themes = [
+                'respect_communication', 'workplace_culture', 'leadership_behavior',
+                'workplace_policies', 'inclusion_diversity', 'training_development',
+                'recognition_appreciation'
+            ]
+            
+            respect_theme_df = theme_df[theme_df['theme'].isin(respect_themes)]
+            
+            if not respect_theme_df.empty:
+                # Create columns for visualization and recommendations
+                col1, col2 = st.columns([3, 2])
+                
+                with col1:
+                    fig = px.bar(
+                        respect_theme_df.sort_values("count", ascending=False),
+                        x="theme",
+                        y="count",
+                        title="Civility & Respect Themes",
+                        labels={"theme": "Theme", "count": "Occurrence Count"},
+                        color="count",
+                        color_continuous_scale="Greens"
+                    )
+                    fig.update_layout(xaxis_tickangle=-45)
+                    st.plotly_chart(fig, use_container_width=True)
+                
+                with col2:
+                    st.markdown("""
+                    ### Key Insights
+                    
+                    Based on staff feedback themes, focus on:
+                    
+                    1. **Communication** - Promote respectful dialogue
+                    
+                    2. **Leadership** - Encourage role modeling
+                    
+                    3. **Recognition** - Acknowledge positive behaviors
+                    
+                    For detailed analysis, visit the **Themes Analysis** page.
+                    """)
             else:
-                st.success("No high-risk departments identified")
-        except Exception as e:
-            st.error(f"Error displaying high risk departments: {str(e)}")
-            st.error(f"Traceback: {traceback.format_exc()}")
+                st.info("No civility and respect themes identified yet. Upload staff feedback data to see insights.")
+        else:
+            st.info("No theme data available")
     else:
-        st.info("No risk data available")
+        st.info("No theme data available")
 
-elif page == "Department Details":
+def department_details():
+    """Department details page"""
     st.title("Department Details")
 
     if not departments:
@@ -458,50 +382,6 @@ elif page == "Department Details":
                 risk_color = "red" if dept_risk.get("high_risk", False) else "blue"
                 risk_score = dept_risk.get("risk_score", 0)
                 st.markdown(f"<h2 style='color:{risk_color};'>Risk: {risk_score:.1f}/5.0</h2>", unsafe_allow_html=True)
-
-            # Risk factors
-            st.subheader("Risk Factors")
-
-            top_themes = dept_risk.get("top_themes", [])
-            if top_themes and isinstance(top_themes, list) and len(top_themes) > 0:
-                # Create gauge charts for top themes
-                col1, col2, col3 = st.columns(3)
-                cols = [col1, col2, col3]
-
-                for i, theme in enumerate(top_themes[:3]):
-                    if not isinstance(theme, dict):
-                        continue
-
-                    with cols[i % 3]:
-                        try:
-                            feature = theme.get("feature", "Unknown").replace("_", " ").title()
-                            contribution = theme.get("contribution_pct", 0)
-
-                            # Create gauge chart
-                            fig = go.Figure(go.Indicator(
-                                mode="gauge+number",
-                                value=contribution,
-                                domain={"x": [0, 1], "y": [0, 1]},
-                                title={"text": feature},
-                                gauge={
-                                    "axis": {"range": [0, 100]},
-                                    "bar": {"color": "darkblue"},
-                                    "steps": [
-                                        {"range": [0, 33], "color": "lightgreen"},
-                                        {"range": [33, 66], "color": "lightyellow"},
-                                        {"range": [66, 100], "color": "salmon"}
-                                    ]
-                                }
-                            ))
-
-                            fig.update_layout(height=250)
-                            st.plotly_chart(fig, use_container_width=True)
-                        except Exception as e:
-                            st.error(f"Error displaying theme gauge: {str(e)}")
-                            st.error(f"Traceback: {traceback.format_exc()}")
-            else:
-                st.info("No risk factor data available for this department")
-
 
             # Theme analysis for this department
             st.subheader("Sample Comments")
@@ -542,7 +422,8 @@ elif page == "Department Details":
         else:
             st.error(f"Could not retrieve data for department: {selected_dept}")
 
-elif page == "Comment Explorer":
+def comment_explorer():
+    """Comment explorer page"""
     st.title("Comment Explorer")
 
     if not data_summary:
@@ -578,7 +459,6 @@ elif page == "Comment Explorer":
         comments = get_sample_comments(department=api_dept, theme=api_theme, limit=50)
     except Exception as e:
         st.error(f"Error fetching comments: {str(e)}")
-        st.error(f"Traceback: {traceback.format_exc()}")
         comments = []
 
     # Filter by sentiment (client-side)
@@ -599,7 +479,6 @@ elif page == "Comment Explorer":
             comments = filtered_comments
         except Exception as e:
             st.error(f"Error filtering comments by sentiment: {str(e)}")
-            st.error(f"Traceback: {traceback.format_exc()}")
 
     # Display comments
     st.subheader(f"Comments ({len(comments) if comments else 0} matching)")
@@ -638,7 +517,329 @@ elif page == "Comment Explorer":
     else:
         st.info("No comments match the selected filters")
 
-elif page == "About":
+def themes_analysis():
+    """Themes analysis page"""
+    # Get themes summary
+    themes = get_themes_summary()
+    
+    st.title("Themes Analysis")
+    
+    # Debug info to help diagnose the issue
+    st.sidebar.write(f"DEBUG - Themes data type: {type(themes)}")
+    if themes:
+        st.sidebar.write(f"DEBUG - Sample themes data: {str(themes)[:200]}...")
+    
+    # Display themes
+    if themes:
+        # Create tabs for different analysis views
+        theme_tabs = st.tabs(["Theme Distribution", "Theme Sentiment Analysis", "Civility Insights"])
+        
+        # First tab: Theme Distribution (existing functionality)
+        with theme_tabs[0]:
+            st.subheader("Overall Theme Distribution")
+            
+            # Check the format of themes data and convert to a proper format for DataFrame
+            theme_data = []
+            
+            # If themes is already a dictionary of theme->count values
+            if isinstance(themes, dict):
+                for theme, count in themes.items():
+                    # Skip themes containing "comment" as they skew results
+                    if "comment" in theme.lower():
+                        continue
+                    theme_data.append({
+                        "theme": theme,
+                        "count": count
+                    })
+            # If themes is a list of dictionaries with 'theme' and 'count' keys
+            elif isinstance(themes, list) and all(isinstance(t, dict) for t in themes):
+                for t in themes:
+                    # Skip themes containing "comment" as they skew results
+                    if "comment" in t.get("theme", "").lower():
+                        continue
+                    theme_data.append(t)
+            else:
+                st.error(f"Unexpected themes data format: {type(themes)}")
+                st.error(f"Themes data: {themes}")
+                st.stop()
+            
+            # Create DataFrame from the properly structured data
+            if theme_data:
+                theme_df = pd.DataFrame(theme_data)
+                theme_df.sort_values(by='count', ascending=False, inplace=True)
+                
+                # Plot the themes
+                fig = px.bar(theme_df, x='theme', y='count', color='count',
+                            labels={'count': 'Frequency', 'theme': 'Theme'},
+                            title="Theme Frequency (excluding 'comment' themes)",
+                            color_continuous_scale=px.colors.sequential.Blues)
+                
+                fig.update_layout(xaxis_tickangle=-45)
+                st.plotly_chart(fig, use_container_width=True)
+                
+                # Display the table
+                st.subheader("Theme Frequency Table")
+                st.dataframe(theme_df)
+                
+        # Second tab: Theme Sentiment Analysis (new functionality)
+        with theme_tabs[1]:
+            st.subheader("Theme Sentiment Analysis")
+            
+            st.markdown("""
+            This analysis shows the sentiment distribution for each theme. 
+            See whether comments mentioning each theme are primarily positive, neutral, or negative.
+            """)
+            
+            # We need to get sentiment data for each theme
+            theme_sentiment_data = {}
+            
+            # Define the top themes for analysis (use themes with highest counts)
+            if 'theme_df' in locals():
+                # Get top 10 themes
+                top_themes = theme_df.head(10)['theme'].tolist()
+                
+                # Initialize progress bar
+                progress_bar = st.progress(0)
+                
+                # For each theme, get sample comments and analyze sentiment
+                for i, theme in enumerate(top_themes):
+                    # Update progress
+                    progress_bar.progress((i + 1) / len(top_themes))
+                    
+                    # Get comments for this theme (increase limit to get a representative sample)
+                    theme_comments = get_sample_comments(theme=theme, limit=100)
+                    
+                    if theme_comments and isinstance(theme_comments, list):
+                        # Count different sentiment categories
+                        sentiment_counts = {"POSITIVE": 0, "NEUTRAL": 0, "NEGATIVE": 0}
+                        
+                        for comment in theme_comments:
+                            if not isinstance(comment, dict):
+                                continue
+                                
+                            score = comment.get("sentiment_score", 0.5)
+                            
+                            # Convert score to sentiment category
+                            if score > 0.6:
+                                sentiment_counts["POSITIVE"] += 1
+                            elif score < 0.4:
+                                sentiment_counts["NEGATIVE"] += 1
+                            else:
+                                sentiment_counts["NEUTRAL"] += 1
+                        
+                        # Store the sentiment distribution for this theme
+                        theme_sentiment_data[theme] = sentiment_counts
+                
+                # Remove progress bar
+                progress_bar.empty()
+                
+                # Create a DataFrame for visualization
+                if theme_sentiment_data:
+                    sentiment_rows = []
+                    
+                    for theme, counts in theme_sentiment_data.items():
+                        total = sum(counts.values())
+                        
+                        if total > 0:
+                            # Calculate percentages
+                            pos_pct = (counts["POSITIVE"] / total * 100) if total > 0 else 0
+                            neu_pct = (counts["NEUTRAL"] / total * 100) if total > 0 else 0
+                            neg_pct = (counts["NEGATIVE"] / total * 100) if total > 0 else 0
+                            
+                            # Format theme name for display
+                            display_theme = theme.replace("theme_", "").replace("_", " ").title()
+                            
+                            # Add row for each sentiment category
+                            sentiment_rows.append({"theme": display_theme, "sentiment": "Positive", "percentage": pos_pct, "count": counts["POSITIVE"]})
+                            sentiment_rows.append({"theme": display_theme, "sentiment": "Neutral", "percentage": neu_pct, "count": counts["NEUTRAL"]})
+                            sentiment_rows.append({"theme": display_theme, "sentiment": "Negative", "percentage": neg_pct, "count": counts["NEGATIVE"]})
+                    
+                    # Create DataFrame
+                    sentiment_df = pd.DataFrame(sentiment_rows)
+                    
+                    # Create a stacked bar chart
+                    fig = px.bar(
+                        sentiment_df,
+                        x="theme",
+                        y="percentage",
+                        color="sentiment",
+                        title="Sentiment Distribution by Theme",
+                        labels={"theme": "Theme", "percentage": "Percentage (%)", "sentiment": "Sentiment"},
+                        color_discrete_map={
+                            "Positive": "green",
+                            "Neutral": "gray",
+                            "Negative": "red"
+                        },
+                        barmode="stack"
+                    )
+                    
+                    fig.update_layout(xaxis_tickangle=-45)
+                    st.plotly_chart(fig, use_container_width=True)
+                    
+                    # Display a grouped bar chart for better comparison
+                    st.subheader("Sentiment Comparison Across Themes")
+                    
+                    # Create a column chart specifically for positive and negative percentages
+                    pivot_df = sentiment_df.pivot(index="theme", columns="sentiment", values="percentage").reset_index()
+                    
+                    # Sort by negative percentage (descending)
+                    pivot_df = pivot_df.sort_values("Negative", ascending=False)
+                    
+                    fig2 = px.bar(
+                        pivot_df,
+                        x="theme",
+                        y=["Negative", "Neutral", "Positive"],
+                        title="Sentiment Distribution by Theme",
+                        labels={"theme": "Theme", "value": "Percentage (%)", "variable": "Sentiment"},
+                        color_discrete_map={
+                            "Positive": "green",
+                            "Neutral": "gray",
+                            "Negative": "red"
+                        },
+                        barmode="group"
+                    )
+                    
+                    fig2.update_layout(xaxis_tickangle=-45)
+                    st.plotly_chart(fig2, use_container_width=True)
+                    
+                    # Create a details table
+                    st.subheader("Detailed Sentiment Data by Theme")
+                    
+                    # Create a more readable table
+                    details_table = []
+                    for theme in pivot_df["theme"]:
+                        theme_data = pivot_df[pivot_df["theme"] == theme].iloc[0]
+                        details_table.append({
+                            "Theme": theme,
+                            "Positive (%)": round(theme_data["Positive"], 1),
+                            "Neutral (%)": round(theme_data["Neutral"], 1),
+                            "Negative (%)": round(theme_data["Negative"], 1),
+                            "Sentiment Ratio": round(theme_data["Positive"] / max(theme_data["Negative"], 0.1), 2)
+                        })
+                    
+                    details_df = pd.DataFrame(details_table)
+                    st.dataframe(details_df)
+                    
+                    # Display insights
+                    st.subheader("Key Insights")
+                    
+                    # Find the most negative theme
+                    most_negative = pivot_df.iloc[0]["theme"]
+                    negative_pct = round(pivot_df.iloc[0]["Negative"], 1)
+                    
+                    # Find the most positive theme
+                    most_positive_idx = pivot_df["Positive"].idxmax()
+                    most_positive = pivot_df.iloc[most_positive_idx]["theme"]
+                    positive_pct = round(pivot_df.iloc[most_positive_idx]["Positive"], 1)
+                    
+                    st.markdown(f"""
+                    - **Most Negative Theme**: {most_negative} ({negative_pct}% negative sentiment)
+                    - **Most Positive Theme**: {most_positive} ({positive_pct}% positive sentiment)
+                    
+                    **What This Means**:
+                    
+                    The sentiment analysis reveals how staff feel about different themes in the workplace. Themes with higher negative sentiment indicate areas of concern, while themes with higher positive sentiment highlight strengths to build upon.
+                    
+                    **Recommended Focus Areas**:
+                    
+                    1. Address issues related to {most_negative.lower()} as a top priority
+                    2. Learn from positive feedback about {most_positive.lower()} to apply lessons to other areas
+                    """)
+                else:
+                    st.info("No sentiment data available for the themes.")
+            else:
+                st.info("No theme data available to analyze sentiment.")
+        
+        # Third tab: Civility Insights (existing functionality)
+        with theme_tabs[2]:
+            # Add a section specifically for civility and respect themes
+            st.subheader("Civility & Respect Insights")
+            
+            # Need to ensure theme_df exists from the previous section
+            if 'theme_df' in locals():
+                # Filter for the civility/respect related themes
+                respect_themes = [
+                    'respect_communication', 'workplace_culture', 'leadership_behavior',
+                    'workplace_policies', 'inclusion_diversity', 'training_development',
+                    'recognition_appreciation'
+                ]
+                
+                respect_theme_df = theme_df[theme_df['theme'].isin(respect_themes)] if not theme_df.empty else pd.DataFrame()
+                
+                if not respect_theme_df.empty:
+                    fig2 = px.pie(respect_theme_df, values='count', names='theme', 
+                                title="Civility & Respect Themes Breakdown")
+                    st.plotly_chart(fig2, use_container_width=True)
+                    
+                    # Summary of key themes
+                    st.subheader("Key Insights for Civility & Respect")
+                    
+                    # Get top 3 themes if available
+                    top_themes = respect_theme_df.head(3)['theme'].tolist() if len(respect_theme_df) >= 3 else respect_theme_df['theme'].tolist()
+                    
+                    if top_themes:
+                        st.markdown("**Top themes related to civility & respect:**")
+                        for theme in top_themes:
+                            readable_theme = theme.replace('_', ' ').title()
+                            st.markdown(f"• **{readable_theme}** - Get sample comments specific to this theme")
+                            
+                            # Get comments for this theme
+                            theme_comments = get_sample_comments(theme=theme, limit=3)
+                            
+                            if theme_comments and isinstance(theme_comments, list):
+                                for comment in theme_comments:
+                                    if not isinstance(comment, dict):
+                                        continue
+                                    
+                                    text = comment.get("free_text_comments", "")
+                                    score = comment.get("sentiment_score", 0.5)
+                                    
+                                    # Convert score to sentiment category
+                                    sentiment_category = "NEUTRAL"
+                                    if score > 0.6:
+                                        sentiment_category = "POSITIVE"
+                                    elif score < 0.4:
+                                        sentiment_category = "NEGATIVE"
+                                    
+                                    sentiment_color = {
+                                        "POSITIVE": "green",
+                                        "NEGATIVE": "red",
+                                        "NEUTRAL": "gray"
+                                    }.get(sentiment_category, "gray")
+                                    
+                                    st.markdown(f"""
+                                    <div style="padding: 10px; border-left: 5px solid {sentiment_color}; background-color: rgba(0,0,0,0.1); margin-bottom: 10px; border-radius: 5px;">
+                                        <p style="color: {sentiment_color}; margin: 0 0 5px 0; font-weight: bold;">Sentiment: {sentiment_category}</p>
+                                        <p style="margin: 0; color: inherit; font-size: 14px;">{text}</p>
+                                    </div>
+                                    """, unsafe_allow_html=True)
+                    
+                    # Add recommendations
+                    st.subheader("Recommendations")
+                    st.markdown("""
+                    Based on the analysis of feedback, consider the following actions to improve civility and respect:
+                    
+                    1. **Communication Training**: Provide workshops on respectful communication techniques and active listening.
+                    
+                    2. **Leadership Development**: Train managers to model respectful behavior and address incivility promptly.
+                    
+                    3. **Recognition Programs**: Implement formal and informal ways to recognize colleagues who demonstrate respectful behavior.
+                    
+                    4. **Clear Policies**: Establish clear guidelines for workplace behavior with consistent enforcement.
+                    
+                    5. **Safe Reporting Channels**: Create confidential channels for reporting disrespectful behavior.
+                    
+                    6. **Regular Feedback**: Implement periodic surveys to track progress in workplace civility.
+                    """)
+                else:
+                    st.info("No civility and respect themes identified in the data.")
+            else:
+                st.info("No theme data available to display.")
+    else:
+        st.info("No theme data available. Please upload data first.")
+
+def about():
+    """About page"""
     st.title("About This Dashboard")
 
     st.markdown("""
@@ -648,7 +849,7 @@ elif page == "About":
 
     ### How It Works
 
-    1. **Data Loading**: Upload CSV or Excel files with department and comment data.
+    1. **Data Loading**: Upload CSV or Excel files with employee feedback.
     2. **NLP Processing**:
        - Sentiment analysis using DistilBERT transformer model
        - Theme extraction with rule-based pattern matching
@@ -671,10 +872,612 @@ elif page == "About":
 
     * **Sentiment Scores**: 0-1 scale (higher = more positive sentiment)
     * **Risk Scores**: 1-5 scale (higher = higher risk, derived from inverted sentiment)
-    * **Themes**: Key topics mentioned in comments (e.g., workload, staffing)
+    * **Themes**: Key topics mentioned in comments (e.g., respect_communication, leadership_behavior)
 
-    This is a simplified version that focuses on NLP analysis without prediction modeling.
+    This is a specialized version focused on identifying civility and respect themes in workplace feedback.
     """)
+
+def insights_solutions():
+    """Insights & Solutions page specifically focused on addressing bullying and harassment"""
+    st.title("Insights & Solutions for Improving Workplace Civility")
+    
+    if not data_summary:
+        st.info("No data loaded. Please upload a file using the sidebar.")
+        st.stop()
+    
+    # Get the comments data for analysis - increase limit to ensure all 510 comments are retrieved
+    all_comments = get_sample_comments(limit=1000)  # Increased from 500 to 1000
+    
+    if not all_comments or not isinstance(all_comments, list) or len(all_comments) == 0:
+        st.error("Unable to retrieve comments data. Please ensure data is loaded.")
+        st.stop()
+    
+    # Show how many comments are being analyzed
+    st.info(f"Analyzing {len(all_comments)} comments for insights...")
+    
+    # Extract key insights from comments
+    # First, classify comments by sentiment and whether they contain a suggested solution
+    suggestions = []
+    problems = []
+    neutral_comments = []
+    
+    # Track theme occurrences with context
+    theme_contexts = {
+        'respect_communication': {'problems': [], 'solutions': []},
+        'workplace_culture': {'problems': [], 'solutions': []},
+        'leadership_behavior': {'problems': [], 'solutions': []},
+        'workplace_policies': {'problems': [], 'solutions': []},
+        'inclusion_diversity': {'problems': [], 'solutions': []},
+        'training_development': {'problems': [], 'solutions': []},
+        'recognition_appreciation': {'problems': [], 'solutions': []},
+    }
+    
+    # Common solution phrases that might indicate a suggestion - expanded list
+    solution_phrases = [
+        "should", "could", "would help", "needed", "need to", "important to", 
+        "recommend", "suggestion", "idea", "propose", "implement", "introduce",
+        "start", "begin", "create", "develop", "establish", "set up", "improve",
+        "enhance", "boost", "increase", "encourage", "provide", "ensure", "must",
+        "have to", "consider", "try", "adopt", "promote", "support"
+    ]
+    
+    # Define more specific solution categories for clustering with expanded keywords
+    specific_solutions = {
+        "better_communication": {
+            "keywords": ["better communication", "improve communication", "communicate better", "open communication", 
+                         "transparent communication", "honest communication", "clear communication", 
+                         "communicate openly", "communication channels", "communication skills", "talk", "discuss",
+                         "conversation", "dialogue", "speak", "speaking", "express", "information sharing"],
+            "comments": [],
+            "display_name": "Better Communication",
+            "example_comments": []
+        },
+        "management_training": {
+            "keywords": ["management training", "train managers", "leadership training", "leader training", 
+                         "manager development", "train supervisors", "management skills", "leadership development",
+                         "manager education", "supervisory skills", "leadership coaching"],
+            "comments": [],
+            "display_name": "Management/Leadership Training",
+            "example_comments": []
+        },
+        "staff_training": {
+            "keywords": ["staff training", "employee training", "training for staff", "train employees", 
+                         "professional development", "skills training", "training opportunities", "educational opportunities",
+                         "learning opportunities", "workshops for staff", "skill development"],
+            "comments": [],
+            "display_name": "Staff Training & Development",
+            "example_comments": []
+        },
+        "accountability": {
+            "keywords": ["accountability", "hold accountable", "consequences", "responsible", "responsibility", 
+                         "addressing issues", "address behavior", "address problems", "take action", "call out",
+                         "challenge", "confront", "discipline", "consequence", "corrective"],
+            "comments": [],
+            "display_name": "Accountability Measures",
+            "example_comments": []
+        },
+        "culture_improvement": {
+            "keywords": ["better culture", "improve culture", "positive culture", "workplace culture", 
+                         "culture change", "respectful culture", "work environment", "atmosphere", "positive environment",
+                         "healthy culture", "workplace environment", "office culture", "team culture"],
+            "comments": [],
+            "display_name": "Culture Improvement",
+            "example_comments": []
+        },
+        "lead_by_example": {
+            "keywords": ["lead by example", "leading by example", "role model", "role models", "role modeling", 
+                         "set an example", "setting example", "model behavior", "demonstrate", 
+                         "example", "exemplify", "show", "showing", "modeling", "leaders should model"],
+            "comments": [],
+            "display_name": "Leading by Example",
+            "example_comments": []
+        },
+        "teambuilding": {
+            "keywords": ["team building", "team activities", "social events", "get together", "social activities", 
+                         "group activities", "team events", "team cohesion", "team bonding", "bonding activities",
+                         "team development", "collaborative activities", "team meetings", "team days"],
+            "comments": [],
+            "display_name": "Team Building Activities",
+            "example_comments": []
+        },
+        "recognition_programs": {
+            "keywords": ["recognition", "rewards", "incentives", "award", "appreciate", "appreciation", 
+                         "acknowledge", "acknowledgment", "praise", "compliment", "recognition program",
+                         "reward system", "award program", "appreciate", "valued"],
+            "comments": [],
+            "display_name": "Recognition & Appreciation",
+            "example_comments": []
+        },
+        "policy_enforcement": {
+            "keywords": ["enforce policy", "policies", "guidelines", "rules", "procedures", "enforce rules", 
+                         "clear policies", "policy implementation", "strict enforcement", "code of conduct",
+                         "standards", "regulations", "protocols", "compliance"],
+            "comments": [],
+            "display_name": "Policy Enforcement",
+            "example_comments": []
+        },
+        "reporting_mechanism": {
+            "keywords": ["reporting", "report system", "anonymous reports", "complaint system", "complaint process", 
+                         "reporting mechanism", "reporting system", "report concerns", "raise concerns", 
+                         "anonymous reporting", "complaint procedure", "raise issues", "speak up"],
+            "comments": [],
+            "display_name": "Reporting Mechanisms",
+            "example_comments": []
+        },
+        "respect_promotion": {
+            "keywords": ["respect", "respectful", "civility", "civil", "polite", "politeness", "courteous", 
+                         "courtesy", "manners", "etiquette", "dignified", "dignity", "consideration",
+                         "regard", "esteem"],
+            "comments": [],
+            "display_name": "Promoting Respect & Civility",
+            "example_comments": []
+        },
+        "listening": {
+            "keywords": ["listen", "listening", "hear concerns", "hear feedback", "listening skills", 
+                         "hear out", "pay attention", "attentive", "active listening", "receptive",
+                         "responsive", "taking feedback", "taking input", "hearing"],
+            "comments": [],
+            "display_name": "Better Listening",
+            "example_comments": []
+        }
+    }
+    
+    for comment in all_comments:
+        if not isinstance(comment, dict):
+            continue
+            
+        text = comment.get("free_text_comments", "").lower()
+        score = comment.get("sentiment_score", 0.5)
+        
+        # Skip empty comments
+        if not text.strip():
+            continue
+            
+        # Check if comment contains a solution suggestion
+        has_solution = any(phrase in text for phrase in solution_phrases)
+        
+        # Classify comment
+        if score < 0.4:  # Negative sentiment - likely describing a problem
+            problems.append({"text": text, "score": score})
+        elif score > 0.6 or has_solution:  # Positive sentiment or contains solution
+            suggestions.append({"text": text, "score": score})
+        else:
+            neutral_comments.append({"text": text, "score": score})
+            
+        # Check for themes in this comment
+        for theme in theme_contexts.keys():
+            theme_key = f"theme_{theme}"
+            if theme_key in comment:
+                # Handle different data types for theme values
+                theme_value = comment[theme_key]
+                if isinstance(theme_value, str):
+                    try:
+                        theme_value = int(float(theme_value))
+                    except (ValueError, TypeError):
+                        theme_value = 0
+                
+                if theme_value == 1:
+                    if has_solution:
+                        theme_contexts[theme]['solutions'].append(text)
+                    else:
+                        theme_contexts[theme]['problems'].append(text)
+        
+        # Classify into specific solution categories
+        for solution_key, solution_data in specific_solutions.items():
+            for keyword in solution_data["keywords"]:
+                if keyword in text:
+                    solution_data["comments"].append(text)
+                    # Add the first 3 examples only
+                    if len(solution_data["example_comments"]) < 3:
+                        clean_text = text[:200] + "..." if len(text) > 200 else text
+                        if clean_text not in solution_data["example_comments"]:
+                            solution_data["example_comments"].append(clean_text)
+                    break  # Only count once per comment per solution category
+    
+    # Count problems and solutions by theme
+    theme_counts = {}
+    for theme, contexts in theme_contexts.items():
+        theme_counts[theme] = {
+            "problems": len(contexts["problems"]),
+            "solutions": len(contexts["solutions"]),
+            "total": len(contexts["problems"]) + len(contexts["solutions"])
+        }
+    
+    # Sort themes by total mentions
+    sorted_themes = sorted(theme_counts.keys(), key=lambda x: theme_counts[x]["total"], reverse=True)
+    
+    # Create a tab-based interface for different insights - removed Implementation Plan
+    tabs = st.tabs(["Key Solutions", "Theme Analysis", "Theme Categories"])
+    
+    with tabs[0]:
+        st.header("Key Solutions from Staff Feedback")
+        
+        # Count and sort the specific solutions by frequency
+        solution_counts = []
+        for sol_key, sol_data in specific_solutions.items():
+            count = len(set(sol_data["comments"]))  # Use set to avoid counting duplicates
+            if count > 0:
+                solution_counts.append({
+                    "solution": sol_data["display_name"],
+                    "count": count,
+                    "key": sol_key
+                })
+        
+        # Sort solutions by count
+        solution_counts = sorted(solution_counts, key=lambda x: x["count"], reverse=True)
+        
+        # Display solutions overview
+        st.markdown(f"""
+        This analysis identifies specific types of solutions mentioned across all {len(all_comments)} comments.
+        The chart below shows exactly how many comments mention each type of solution.
+        """)
+        
+        # Display top solutions as a bar chart
+        if solution_counts:
+            solution_df = pd.DataFrame(solution_counts)
+            
+            # Calculate percentage of total comments
+            total_comments = len(all_comments)
+            solution_df["percentage"] = (solution_df["count"] / total_comments * 100).round(1)
+            
+            fig = px.bar(
+                solution_df,
+                x="solution",
+                y="count",
+                title=f"Number of Comments Mentioning Each Solution Type",
+                labels={"solution": "Solution Type", "count": "Number of Comments"},
+                color="count",
+                color_continuous_scale="Viridis",
+                text="percentage"  # Show percentage on bars
+            )
+            fig.update_traces(texttemplate='%{text}%', textposition='outside')
+            fig.update_layout(xaxis_tickangle=-45)
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # Display the top solution categories with example comments
+            st.subheader("Top Solution Categories with Examples")
+            
+            # Show the top 5 solution categories
+            for i, row in solution_df.head(5).iterrows():
+                category = row["solution"]
+                count = row["count"]
+                percentage = row["percentage"]
+                key = row["key"]
+                
+                st.markdown(f"### {i+1}. {category}: {count} comments ({percentage}%)")
+                
+                # Show sample comments for this category
+                examples = specific_solutions[key]["example_comments"]
+                if examples:
+                    for j, example in enumerate(examples):
+                        st.markdown(f"**Example {j+1}:** _{example.capitalize()}_")
+                        
+                    # Add a divider between categories
+                    st.markdown("---")
+                else:
+                    st.info("No example comments available for this category.")
+            
+            # Display the data table
+            with st.expander("View complete solution frequency data"):
+                st.dataframe(
+                    solution_df[["solution", "count", "percentage"]].rename(
+                        columns={"solution": "Solution Type", "count": "Number of Comments", "percentage": "% of All Comments"}
+                    )
+                )
+        else:
+            st.info("No specific solutions identified in the comments.")
+    
+    with tabs[1]:
+        st.header("Theme Analysis")
+        
+        # Get themes summary
+        themes = get_themes_summary()
+        
+        if not themes:
+            st.error("No theme data available. Please ensure theme detection is working properly.")
+            st.stop()
+            
+        # Create a DataFrame from the themes data
+        theme_data = []
+        for theme, count in themes.items():
+            # Skip themes containing "comment"
+            if "comment" in theme.lower():
+                continue
+            
+            # Clean up theme name for display
+            display_name = theme.replace("theme_", "").replace("_", " ").title()
+            
+            theme_data.append({
+                "theme": display_name,
+                "original_theme": theme,
+                "count": count
+            })
+        
+        if not theme_data:
+            st.warning("No valid themes found after filtering.")
+            st.stop()
+            
+        theme_df = pd.DataFrame(theme_data)
+        theme_df = theme_df.sort_values("count", ascending=False)
+        
+        # Display the top 5 themes
+        st.subheader("Top 5 Themes by Frequency")
+        
+        # Calculate percentage of total comments
+        total_comments = len(all_comments)
+        theme_df["percentage"] = (theme_df["count"] / total_comments * 100).round(1)
+        
+        # Create a bar chart for the top 5 themes
+        top5_df = theme_df.head(5)
+        fig = px.bar(
+            top5_df,
+            x="theme",
+            y="count",
+            title=f"Most Frequently Mentioned Themes",
+            labels={"theme": "Theme", "count": "Number of Comments"},
+            color="count",
+            color_continuous_scale="Blues",
+            text="percentage"  # Show percentage on bars
+        )
+        fig.update_traces(texttemplate='%{text}%', textposition='outside')
+        fig.update_layout(xaxis_tickangle=-45)
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Display theme-solution analysis 
+        st.subheader("Theme-Solution Analysis")
+        
+        # Create a summary of key themes with problem/solution breakdown
+        theme_summary_data = []
+        for theme in sorted_themes:
+            counts = theme_counts[theme]
+            if counts["total"] > 0:
+                theme_summary_data.append({
+                    "theme": theme.replace("_", " ").title(),
+                    "problems": counts["problems"],
+                    "solutions": counts["solutions"],
+                    "total": counts["total"]
+                })
+        
+        if theme_summary_data:
+            # Create a DataFrame and sort by total mentions
+            theme_summary_df = pd.DataFrame(theme_summary_data)
+            theme_summary_df = theme_summary_df.sort_values("total", ascending=False)
+            
+            # Display stacked bar chart of problems vs solutions for top 5 themes
+            top5_summary_df = theme_summary_df.head(5)
+            fig = px.bar(
+                top5_summary_df,
+                x="theme",
+                y=["problems", "solutions"],
+                title="Problems vs. Solutions Mentioned by Theme",
+                labels={"value": "Count", "theme": "Theme", "variable": "Type"},
+                color_discrete_map={"problems": "red", "solutions": "green"},
+            )
+            fig.update_layout(xaxis_tickangle=-45)
+            st.plotly_chart(fig, use_container_width=True)
+        
+            # Show problem-solution analysis for top 5 themes
+            st.subheader("Detailed Analysis of Top 5 Themes")
+            
+            for theme in sorted_themes[:5]:
+                if theme_counts[theme]["total"] == 0:
+                    continue
+                    
+                readable_theme = theme.replace("_", " ").title()
+                
+                with st.expander(f"{readable_theme} - {theme_counts[theme]['total']} mentions"):
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        st.markdown("**Key Problems:**")
+                        if theme_contexts[theme]["problems"]:
+                            # Extract the most representative problems
+                            representative_problems = list(set([p[:100] + "..." if len(p) > 100 else p for p in theme_contexts[theme]["problems"]]))
+                            for problem in representative_problems[:3]:  # Show top 3
+                                st.markdown(f"• {problem.capitalize()}")
+                        else:
+                            st.info("No specific problems identified")
+                    
+                    with col2:
+                        st.markdown("**Proposed Solutions:**")
+                        if theme_contexts[theme]["solutions"]:
+                            # Extract the most representative solutions
+                            representative_solutions = list(set([s[:100] + "..." if len(s) > 100 else s for s in theme_contexts[theme]["solutions"]]))
+                            for solution in representative_solutions[:3]:  # Show top 3
+                                st.markdown(f"• {solution.capitalize()}")
+                        else:
+                            st.info("No specific solutions proposed")
+        else:
+            st.info("No theme analysis data available.")
+
+    # Add a new tab for theme categories and detailed analysis
+    with tabs[2]:
+        st.header("Theme Categories and Insights")
+        
+        # Define theme category groupings
+        theme_categories = {
+            "Communication & Transparency": {
+                "themes": ["respect_communication", "listening"],
+                "description": "Themes related to how information is shared and feedback is received",
+                "examples": []
+            },
+            "Leadership & Management": {
+                "themes": ["leadership_behavior", "lead_by_example"],
+                "description": "Themes focused on leadership styles, behaviors, and role modeling",
+                "examples": []
+            },
+            "Culture & Team Environment": {
+                "themes": ["workplace_culture", "culture_improvement", "teambuilding", "respect_promotion"],
+                "description": "Themes about the overall work atmosphere and team dynamics",
+                "examples": []
+            },
+            "Policies & Accountability": {
+                "themes": ["workplace_policies", "policy_enforcement", "accountability", "reporting_mechanism"],
+                "description": "Themes related to guidelines, procedures, and consequences for behavior",
+                "examples": []
+            },
+            "Development & Recognition": {
+                "themes": ["training_development", "staff_training", "management_training", "recognition_appreciation", "recognition_programs"],
+                "description": "Themes about staff development, training, and recognition efforts",
+                "examples": []
+            },
+            "Diversity & Inclusion": {
+                "themes": ["inclusion_diversity"],
+                "description": "Themes focused on creating an inclusive environment for all staff",
+                "examples": []
+            }
+        }
+        
+        # Collect comments for each category
+        category_counts = {}
+        category_comments = {}
+        
+        for category, data in theme_categories.items():
+            category_comments[category] = []
+            # Gather all comments from related themes
+            for theme in data["themes"]:
+                if theme in theme_contexts:
+                    # Add problems
+                    for comment in theme_contexts[theme]["problems"]:
+                        category_comments[category].append({"text": comment, "type": "problem"})
+                    # Add solutions
+                    for comment in theme_contexts[theme]["solutions"]:
+                        category_comments[category].append({"text": comment, "type": "solution"})
+            
+            # Count unique comments in this category
+            unique_texts = set([c["text"] for c in category_comments[category]])
+            category_counts[category] = len(unique_texts)
+            
+            # Find most representative examples (looking for longer, more detailed comments)
+            if unique_texts:
+                sorted_examples = sorted(list(unique_texts), key=len, reverse=True)
+                # Take diverse examples (different starting words)
+                examples = []
+                for ex in sorted_examples:
+                    # Only consider substantial comments
+                    if len(ex) < 50:
+                        continue
+                    # Avoid redundant examples
+                    unique_start = True
+                    for existing in examples:
+                        if ex[:20].lower() == existing[:20].lower():
+                            unique_start = False
+                            break
+                    if unique_start and len(examples) < 3:
+                        examples.append(ex)
+                
+                theme_categories[category]["examples"] = examples[:3]  # Up to 3 examples
+        
+        # Create visualization of theme categories
+        category_data = []
+        for category, count in category_counts.items():
+            if count > 0:
+                category_data.append({
+                    "category": category,
+                    "count": count
+                })
+        
+        if category_data:
+            category_df = pd.DataFrame(category_data)
+            category_df = category_df.sort_values("count", ascending=False)
+            
+            # Add percentage
+            total_categorized = category_df["count"].sum()
+            category_df["percentage"] = (category_df["count"] / total_comments * 100).round(1)
+            
+            # Create a pie chart for categories
+            fig = px.pie(
+                category_df,
+                values="count",
+                names="category",
+                title="Distribution of Themes by Category",
+                color_discrete_sequence=px.colors.qualitative.Pastel
+            )
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # Create a table of categories with counts
+            st.subheader("Theme Categories Summary")
+            category_table = category_df.copy()
+            category_table.columns = ["Theme Category", "Comment Count", "% of Total"]
+            st.table(category_table)
+            
+            # Show detailed analysis for each category
+            st.subheader("Detailed Analysis by Category")
+            
+            for category in category_df["category"]:
+                data = theme_categories[category]
+                with st.expander(f"{category} ({category_counts[category]} comments)"):
+                    st.markdown(f"**{data['description']}**")
+                    
+                    # List the themes in this category
+                    theme_list = [t.replace("_", " ").title() for t in data["themes"]]
+                    st.markdown(f"**Includes themes:** {', '.join(theme_list)}")
+                    
+                    # Display illustrative quotes with clean formatting
+                    st.markdown("### Representative Quotes")
+                    
+                    if data["examples"]:
+                        for i, example in enumerate(data["examples"]):
+                            # Clean and format the quote
+                            clean_quote = example.capitalize().strip()
+                            
+                            # Create a nice quote box with styling
+                            st.markdown(f"""
+                            <div style="margin: 10px 0; padding: 15px; border-left: 5px solid #4287f5; background-color: #f5f5f5; border-radius: 4px;">
+                                <p style="font-style: italic; margin: 0; color: #333; font-size: 16px;">"{clean_quote}"</p>
+                            </div>
+                            """, unsafe_allow_html=True)
+                    else:
+                        st.info("No representative quotes available for this category.")
+                    
+                    # Show common themes in the category
+                    st.markdown("### Key Insights")
+                    
+                    # Count solution vs problem comments
+                    solution_comments = [c for c in category_comments[category] if c["type"] == "solution"]
+                    problem_comments = [c for c in category_comments[category] if c["type"] == "problem"]
+                    
+                    solution_pct = len(solution_comments) / max(len(category_comments[category]), 1) * 100
+                    st.markdown(f"- **Solution-Problem Ratio**: {len(solution_comments)} solutions / {len(problem_comments)} problems ({solution_pct:.1f}% solutions)")
+                    
+                    # Suggest areas for further investigation
+                    if solution_pct < 30:
+                        st.markdown("- **Area for Investigation**: Low percentage of solution-oriented comments suggests staff may need more support in developing solutions.")
+                    elif solution_pct > 70:
+                        st.markdown("- **Strength**: High percentage of solution-oriented comments indicates staff are actively engaged in problem-solving.")
+                    
+                    # Add specific insights for each category
+                    if category == "Communication & Transparency":
+                        st.markdown("- Consider establishing clear communication channels and feedback mechanisms")
+                    elif category == "Leadership & Management":
+                        st.markdown("- Focus on leadership development and role modeling of respectful behaviors")
+                    elif category == "Culture & Team Environment":
+                        st.markdown("- Promote team-building activities and positive recognition programs")
+                    elif category == "Policies & Accountability":
+                        st.markdown("- Review and strengthen policies for addressing disrespectful behavior")
+                    elif category == "Development & Recognition":
+                        st.markdown("- Invest in training on respectful communication and conflict resolution")
+                    elif category == "Diversity & Inclusion":
+                        st.markdown("- Ensure all staff feel valued and included through inclusive practices")
+        else:
+            st.info("No theme categories with sufficient data available.")
+
+# Main code section starts here
+# Now the functions are defined before they are called
+
+# Main content based on selected page
+if page == "Home":
+    home_page()
+elif page == "Department Details":
+    department_details()
+elif page == "Comment Explorer":
+    comment_explorer()
+elif page == "Themes Analysis":
+    themes_analysis()
+elif page == "Insights & Solutions":
+    insights_solutions()
+else:
+    about()
 
 # Display last updated timestamp
 if data_summary and "last_updated" in data_summary:
