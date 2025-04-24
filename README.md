@@ -1,175 +1,98 @@
 # Staff Feedback Analysis Tool
 
-An AI-powered tool to analyze staff feedback on workplace civility and respect, providing actionable insights through NLP and interactive visualizations.
-
 ## Overview
 
-This tool processes unstructured staff feedback (free-text comments) to:
-- Analyze sentiment using DistilBERT
-- Detect themes/topics related to workplace civility and respect
-- Extract suggested solutions from employee comments
-- Analyze sentiment distribution by theme
-- Visualize results in an interactive dashboard
-- Provide actionable insights for improving workplace culture
-- Export analysis in static HTML, PDF, and PowerPoint formats
+This tool analyzes free-text staff feedback comments from surveys or other sources. It performs sentiment analysis (at the sentence level) and identifies relevant themes and subthemes within the comments.
 
-## Key Components
+The application consists of:
 
-### 1. Data Pipeline
-- Accepts CSV/Excel files with department names and free-text comments
-- Handles single-question feedback formats (like the NQPS Q4 document)
-- Cleans and normalizes text data
-- Groups comments by department
+1.  **FastAPI Backend (`api.py`)**: Handles data uploading, preprocessing, NLP analysis (sentiment, themes), and serves the results via API endpoints.
+2.  **Streamlit Dashboard (`dashboard.py` & `pages/`)**: Provides an interactive interface for uploading data, viewing overall summaries, exploring themes, analyzing departments, and browsing individual comments.
+3.  **Standalone Report App (`report_app.py`)**: A separate Streamlit application that displays a concise summary report based on the latest processed data from the API.
 
-### 2. NLP Engine
-- Sentiment analysis using DistilBERT transformer model
-- Custom theme detection for workplace civility topics
-- Rule-based pattern matching with exclusion filters
-- Solution extraction through keyword pattern matching
-- Theme-level sentiment distribution analysis
+## Features
 
-### 3. API Layer (FastAPI)
-- File upload and processing endpoint
-- Theme analysis and comment sampling
-- Department-level insights
-- Sentiment distribution metrics
-- Theme-specific comment retrieval for sentiment analysis
+*   **Data Upload**: Accepts CSV or Excel files containing department and feedback columns.
+*   **Preprocessing**: Cleans text data, handles missing values, standardizes department names.
+*   **Sentence-Level Sentiment Analysis**: Uses a pre-trained transformer model (DistilBERT SST-2) to determine sentiment (positive, negative, neutral) for each sentence within a comment. Calculates an overall comment sentiment based on the sentence average.
+*   **Hierarchical Theme Extraction**: Identifies predefined themes (e.g., Workload, Management) and subthemes (e.g., Pressure, Staffing Levels) using keyword matching and exclusion patterns.
+*   **Aggregation**: Summarizes results overall and by department, including comment counts, average sentiment, and sentiment distributions (based on sentence analysis for themes).
+*   **Interactive Dashboard**: Allows users to explore results through various pages (Home, Department Details, Comment Explorer, Themes Analysis, Insights).
+*   **Standalone Report**: Provides a quick, read-only summary view.
 
-### 4. Dashboard (Streamlit)
-- Interactive visualizations of sentiment and themes
-- Solution frequency analysis with examples
-- Comment explorer with sentiment and theme filtering
-- Department-level drilldowns
-- Theme Sentiment Analysis with positive/neutral/negative breakdowns
-- Dedicated Insights & Solutions page for actionable recommendations
+## Setup & Installation
 
-### 5. Export Functionality
-- Static HTML exports for web sharing
-- PDF reports with key visualizations and actionable insights
-- PowerPoint presentations for stakeholder meetings
-- Automated report generation with comprehensive data
+1.  **Prerequisites**:
+    *   Python (version 3.9+ recommended, tested with 3.11)
+    *   `pip` (Python package installer)
+    *   Git (for cloning)
 
-## Installation
+2.  **Clone Repository**:
+    ```bash
+    git clone <repository_url>
+    cd <repository_directory>
+    ```
 
-1. Clone this repository:
-```
-git clone https://github.com/yourusername/staff-feedback-analysis.git
-cd staff-feedback-analysis
-```
+3.  **Create Virtual Environment** (Recommended):
+    ```bash
+    python3 -m venv .venv
+    source .venv/bin/activate  # Linux/macOS
+    # .venv\Scripts\activate  # Windows
+    ```
 
-2. Create a virtual environment:
-```
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-```
+4.  **Install Dependencies**:
+    ```bash
+    pip install -r requirements.txt
+    ```
 
-3. Install dependencies:
-```
-pip install -r requirements.txt
-```
+5.  **Download NLTK Data**:
+    The application attempts to download the necessary 'punkt' tokenizer data on first run. If this fails (e.g., due to SSL issues), download it manually:
+    *   Open a Python interpreter: `python3`
+    *   Run: 
+        ```python
+        import nltk
+        nltk.download('punkt')
+        exit()
+        ```
+    *   **macOS SSL Fix (if needed)**: If the manual download fails with an SSL error, navigate to your Python installation folder (e.g., `/Applications/Python 3.11/`) and double-click `Install Certificates.command`. Then retry the manual NLTK download.
 
-4. Download necessary model files:
-```
-python -m spacy download en_core_web_sm
-```
+## Running the Application
 
-## Usage
+1.  **Start the API Server and Dashboard**: 
+    Open a terminal in the project directory and run:
+    ```bash
+    python main.py
+    ```
+    This will start the FastAPI server (usually on `http://localhost:8000`) and the main Streamlit dashboard (usually on `http://localhost:8501`). It should automatically open the dashboard in your browser.
 
-### Running the Application
+2.  **Upload Data**: Use the sidebar in the main dashboard (`http://localhost:8501`) to upload your feedback file (CSV/XLSX).
 
-1. Run the complete application using the run script:
-```
-python run.py
-```
-This will start both the API server and the Streamlit dashboard.
-
-2. Access the dashboard in your web browser at http://localhost:8501
-
-### Using the Dashboard
-
-1. Upload a CSV or Excel file containing:
-   - Free-text comments from staff about workplace civility and respect
-   - The tool can handle both multi-question surveys with department information
-   - And single-question formats (like NQPS Q4) without explicit department data
-
-2. View the analysis results:
-   - Sentiment distribution visualization
-   - Theme frequency breakdown
-   - Theme sentiment analysis showing positive/neutral/negative distributions
-   - Solution categorization with exact counts
-   - Comment samples filtered by sentiment, theme, or department
-   - Detailed insights and actionable recommendations
-
-### Theme Sentiment Analysis
-
-The Theme Sentiment Analysis feature provides deeper insights into how staff feel about each workplace theme:
-
-1. Access it through the "Themes Analysis" page and select the "Theme Sentiment Analysis" tab
-2. The analysis shows:
-   - Sentiment distribution for each theme (positive, neutral, negative percentages)
-   - Sentiment comparison across themes with both stacked and grouped visualizations
-   - Detailed metrics including sentiment ratios for each theme
-   - Key insights highlighting the most positive and most negative themes
-   - Recommended focus areas based on sentiment patterns
-
-This feature helps you understand not just what themes are mentioned, but whether staff comments about each theme are primarily positive or negative, enabling more targeted action planning.
-
-### Exporting Analysis Results
-
-The tool provides multiple export options to share analysis results with stakeholders:
-
-1. **Static HTML Exports**:
-   ```
-   python export_dashboard.py --data your_data.csv --formats html
-   ```
-   - Creates standalone HTML files that can be viewed in any web browser
-   - Includes interactive visualizations
-   - Generated in the `static_exports` directory
-
-2. **PDF Reports**:
-   ```
-   python export_dashboard.py --data your_data.csv --formats pdf
-   ```
-   - Generates a comprehensive PDF report with all visualizations
-   - Includes data tables and actionable insights
-   - Perfect for printing and distributing in meetings
-   - Saved in the `reports` directory
-
-3. **PowerPoint Presentations**:
-   ```
-   python export_dashboard.py --data your_data.csv --formats pptx
-   ```
-   - Creates a ready-to-present PowerPoint deck
-   - Includes slides for all key visualizations
-   - Features actionable insights and next steps
-   - Ideal for stakeholder presentations
-
-4. **Export All Formats**:
-   ```
-   python export_dashboard.py --data your_data.csv --formats all
-   ```
-   - Generates all export formats in one command
-
-All exports capture the full analysis including sentiment distribution, theme analysis, and actionable insights, making it easy to share findings without requiring access to the dashboard.
+3.  **View Report (Optional)**:
+    *   Ensure the API server from step 1 is still running.
+    *   Open a *new* terminal in the project directory.
+    *   Run:
+        ```bash
+        streamlit run report_app.py
+        ```
+    *   This will open the standalone report (usually on `http://localhost:8502` or another port if 8501 is busy) in your browser.
 
 ## Project Structure
 
-```
-staff-feedback-analysis/
-│
-├── api.py                # FastAPI backend
-├── dashboard.py          # Streamlit frontend
-├── run.py                # Integration script to run both API and dashboard
-├── preprocessing.py      # Data loading and cleaning
-├── nlp_pipeline.py       # Text analysis and theme detection
-├── export_static.py      # Static HTML export functionality
-├── export_reports.py     # PDF and PowerPoint export functionality
-├── export_dashboard.py   # Combined export script for all formats
-├── development_summary.md # Documentation of development decisions and updates
-├── update_dev_summary.py # Script to update development summary
-├── requirements.txt      # Dependencies
-└── README.md             # Documentation
-```
+*   `api.py`: FastAPI application.
+*   `nlp_pipeline.py`: Core NLP processing logic (sentiment, themes).
+*   `preprocessing.py`: Data loading and cleaning functions.
+*   `api_client.py`: Helper functions for the dashboard/report apps to communicate with the API.
+*   `dashboard.py`: Main Streamlit dashboard entry point.
+*   `report_app.py`: Standalone Streamlit report application.
+*   `pages/`: Directory containing individual Streamlit page modules for the dashboard.
+*   `main.py`: Script to launch both the API and the main dashboard.
+*   `config.py`: Configuration settings (ports, model names - though some config is now internal).
+*   `requirements.txt`: Python dependencies.
+*   `README.md`: This file.
+*   `Instructions.md`: Step-by-step user instructions.
+*   `development_summary.md`: Overview of development changes.
+*   `.venv/`: Virtual environment directory (if created).
+*   `temp/`: Temporary directory for file uploads (managed by `main.py`).
 
 ## Target Users
 
