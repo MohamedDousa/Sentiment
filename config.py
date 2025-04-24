@@ -32,76 +32,16 @@ RISK_SCORE_MAX = 5.0  # Maximum risk score (1-5 scale)
 
 # Theme detection settings
 # Dictionary with themes and associated keywords can be customized here
-THEMES = {
-    "workload": [
-        "overwhelming", "unsustainable", "long hours", "exhausted",
-        "pressure", "unmanageable", "stress", "burnout", "capacity",
-        "demanding", "relentless", "backlog", "targets", "ratio"
-    ],
-    
-    "staffing": [
-        "understaffed", "shortages", "recruitment", "retention",
-        "agency staff", "bank shifts", "rota gaps", "sickness absence",
-        "vacancies", "skill mix", "skill drain", "agency rates"
-    ],
-    
-    "management": [
-        "supportive", "unresponsive", "micromanagement",
-        "leadership", "transparency", "consultation", "trust",
-        "favouritism", "nepotism", "autocratic", "bureaucracy"
-    ],
-    
-    "facilities": [
-        "outdated equipment", "leaking roof", "asbestos",
-        "infrastructure", "ventilation", "heating", "lighting",
-        "infection control", "ward space", "privacy", "crowding"
-    ],
-    
-    "career_development": [
-        "band progression", "dead-end job", "promotion", "apprenticeship",
-        "career stagnation", "training budget", "qualifications",
-        "skill recognition", "pay scales", "agenda for change", "CEPD"
-    ],
-    
-    "compensation": [
-        "cost of living", "salary freeze", "pay disparity", "London weighting",
-        "bank rates", "overtime pay", "pension deductions", "food banks",
-        "financial stress", "living wage", "tax burden", "overtime ban"
-    ],
-    
-    "work_environment": [
-        "bullying culture", "racial discrimination", "harassment",
-        "fear of speaking up", "toxic atmosphere", "cliques", "ostracized",
-        "discrimination", "racism", "BAME", "ethnic minority", "equity"
-    ],
-    
-    "patient_care_impact": [
-        "corridor nursing", "missed observations", "medication errors",
-        "delayed discharges", "waiting lists", "cancelled clinics",
-        "safety incidents", "near misses", "DATIX", "patient harm",
-        "breaches", "12hr waits"
-    ],
-    
-    "flexibility_worklife": [
-        "childcare conflicts", "school run", "elder care", "shift patterns",
-        "work-life balance", "remote work", "agile working", "WFH",
-        "compressed hours", "part-time options", "job share"
-    ],
-    
-    "safety": [
-        "dangerous", "unsafe", "hazard", "incident", "injury",
-        "accident", "protection", "protective equipment", "risk assessment",
-        "compliance", "protocol breach", "corners cut"
-    ]
-}
+# NOTE: This dictionary is now defined within nlp_pipeline.py's __init__
+# THEMES = { ... }
 
 # Define exclusion patterns for better accuracy
-EXCLUSION_PATTERNS = {
-    "workload": ["workload is manageable", "workload is reasonable"],
-    "management": ["i am in management", "as a manager"],
-    "staffing": ["staffing improved", "well staffed"],
-}
+# NOTE: This dictionary is now defined within nlp_pipeline.py's __init__
+# EXCLUSION_PATTERNS = { ... }
 
 # Default column names for input data
 DEFAULT_DEPARTMENT_COL = "department"
-DEFAULT_COMMENT_COL = "free-text comments" 
+DEFAULT_COMMENT_COL = "free-text comments"
+
+# REMOVED: THEME_SOLUTIONS dictionary is removed as requested.
+# THEME_SOLUTIONS = { ... } 

@@ -179,6 +179,10 @@ The most significant innovation has been the shift from simply counting theme oc
 
 ## Updates Log
 
+### [Date: 2025-03-19]
+- exporting files using pdf/powerpoimt
+
+
 ### [Date: 2025-03-18]
 - Added a new Theme Sentiment Analysis feature to provide deeper insights into how staff feel about each workplace theme:
   - Created a tabbed interface in the Themes Analysis page with separate tabs for Theme Distribution, Theme Sentiment Analysis, and Civility Insights

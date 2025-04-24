@@ -8,540 +8,858 @@ Original file is located at
 """
 
 import spacy
-from collections import Counter
+from collections import Counter, defaultdict
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 from transformers import pipeline
 import re
 import pandas as pd
+import numpy as np # Import numpy
 import torch
+from typing import List, Dict, Tuple, Optional, Any # Add typing imports
+import nltk # Import NLTK
+
 class NLPProcessor:
     def __init__(self, themes_dict=None):
         """
-        Initialize the NLP processor with sentiment analysis and theme extraction capabilities
+        Initialize the NLP processor with sentiment analysis and hierarchical theme extraction.
 
         Args:
-            themes_dict (dict, optional): Dictionary mapping themes to keywords
+            themes_dict (dict, optional): Dictionary defining themes and subthemes.
+                                         Structure: { 'theme_name': { 'keywords': [...], 'subthemes': { 'subtheme_name': [...] } } }
         """
-        # Define themes relevant to staff feedback
-        self.themes = {
-            "workload": [
-                "too much work", "burnout", "exhausted", "overworked", "staffing levels", 
-                "staffing shortages", "short staffed", "not enough staff", "under resourced",
-                "high workload", "excessive workload", "workload pressure"
-            ],
-            # Existing themes with expansions
-            "staffing": ["understaffed", "shortages", "recruitment", "retention",
-                        "agency staff", "bank shifts", "rota gaps", "sickness absence",
-                        "vacancies", "skill mix", "skill drain", "agency rates"],
+        print("[NLPProcessor] Initializing...") # DEBUG
 
-            "management": ["supportive", "unresponsive", "micromanagement",
-                          "leadership", "transparency", "consultation", "trust",
-                          "favouritism", "nepotism", "autocratic", "bureaucracy"],
+        # --- Ensure NLTK data is available ---
+        try:
+            nltk.data.find('tokenizers/punkt')
+        except LookupError: # CORRECTED: Catch LookupError when resource is not found
+            print("NLTK 'punkt' not found. Downloading...")
+            try:
+                nltk.download('punkt', quiet=True)
+                print("'punkt' downloaded successfully.")
+                # Verify download
+                nltk.data.find('tokenizers/punkt')
+                print("'punkt' verified after download.")
+            except Exception as download_err: # Catch potential errors during download
+                print(f"ERROR: Failed to download or verify NLTK 'punkt' data: {download_err}")
+                print("Please try installing 'punkt' manually: open Python interpreter, run import nltk; nltk.download('punkt')")
+                # Decide if this should be fatal
+                raise download_err # Make it fatal if download fails
+        except Exception as e:
+            print(f"Error checking/downloading NLTK data: {e}")
+            # Decide if this should be fatal or just a warning
+            raise e # Make it fatal if sentence tokenization is critical
 
-            "facilities": ["outdated equipment", "leaking roof", "asbestos",
-                          "infrastructure", "ventilation", "heating", "lighting",
-                          "infection control", "ward space", "privacy", "crowding"],
-
-            # New critical themes from sample data
-            "career_development": [
-                "band progression", "dead-end job", "promotion", "apprenticeship",
-                "career stagnation", "training budget", "qualifications",
-                "skill recognition", "pay scales", "agenda for change", "CEPD"
-            ],
-
-            "compensation": [
-                "cost of living", "salary freeze", "pay disparity", "London weighting",
-                "bank rates", "overtime pay", "pension deductions", "food banks",
-                "financial stress", "living wage", "tax burden", "overtime ban"
-            ],
-
-            "work_environment": [
-                "bullying culture", "racial discrimination", "harassment",
-                "fear of speaking up", "toxic atmosphere", "cliques", "ostracized",
-                "discrimination", "racism", "BAME", "ethnic minority", "equity"
-            ],
-
-            "patient_care_impact": [
-                "corridor nursing", "missed observations", "medication errors",
-                "delayed discharges", "waiting lists", "cancelled clinics",
-                "safety incidents", "near misses", "DATIX", "patient harm",
-                "breaches", "12hr waits"
-            ],
-
-            "flexibility_worklife": [
-                "childcare conflicts", "school run", "elder care", "shift patterns",
-                "work-life balance", "remote work", "agile working", "WFH",
-                "compressed hours", "part-time options", "job share"
-            ],
-
-            "IT_systems": [
-                "electronic prescribing", "legacy systems", "CareFlow", "Trak",
-                "login issues", "system downtime", "interoperability", "EPR",
-                "digital notes", "cyber security", "outdated software"
-            ],
-
-            "training_support": [
-                "preceptorship", "mandatory training", "supernumerary time",
-                "clinical supervision", "mentorship", "CPD", "simulation training",
-                "induction", "competency framework", "protected learning time"
-            ],
-
-            "estates_logistics": [
-                "parking permits", "staff transport", "site access", "security",
-                "smoking areas", "canteen prices", "vending machines", "locker space",
-                "changing rooms", "shuttle service", "bike storage"
-            ],
-
-            "wellbeing_services": [
-                "occupational health", "counselling", "resilience training",
-                "mental health first aid", "health checks", "fitness facilities",
-                "stress management", "trauma support", "financial advice"
-            ],
-
-            "governance_risk": [
-                "whistleblowing", "FTSU guardians", "SI investigations",
-                "risk assessments", "compliance", "CQC ratings", "audits",
-                "policy adherence", "documentation burden", "reporting culture"
-            ],
-
-            "team_dynamics": [
-                "interdepartmental conflict", "MDT working", "professional respect",
-                "nurse-doctor relations", "support workers", "skill mix tension",
-                "agency staff integration", "bank staff treatment", "team morale"
-            ],
-
-            "resource_allocation": [
-                "adequate staffing", "sufficient resources", "fair allocation", "equal distribution",
-                "prioritization", "resource constraints", "fair workload", "balanced responsibilities"
-            ],
-
-            # New civility and respect themes
-            "respect_communication": [
-                "active listening", "respectful language", "tone of voice", "speaking over",
-                "interrupting", "talking behind back", "inclusive language", "civil discourse",
-                "communicating clearly", "open dialogue", "constructive feedback", "criticism",
-                "condescending", "patronizing", "dismissive", "listen to each other", "heard",
-                "being ignored", "respect opinions", "different perspectives", "polite conversation",
-                "rude comments", "aggressive emails", "formal communication", "informal chat"
-            ],
-            
-            "workplace_culture": [
-                "toxic environment", "negative atmosphere", "gossip", "rumors", "blame culture",
-                "positive culture", "supportive culture", "bullying", "harassment", "discrimination",
-                "cliques", "favoritism", "inclusive culture", "respect diversity", "workplace values",
-                "organizational values", "culture shift", "cultural change", "hostile environment",
-                "psychological safety", "safe to speak up", "fear of reprisal", "appreciation"
-            ],
-            
-            "leadership_behavior": [
-                "role model", "leading by example", "management style", "leadership approach",
-                "manager behavior", "supervisor conduct", "set standards", "accountability",
-                "consequences", "address behavior", "call out", "speak up", "intervene",
-                "fair treatment", "transparent decisions", "approachable managers", "open door policy",
-                "authority figures", "power dynamics", "hierarchical issues"
-            ],
-            
-            "workplace_policies": [
-                "code of conduct", "behavior policy", "civility policy", "standards of behavior",
-                "expectations", "guidelines", "disciplinary process", "enforcement", "reporting procedure",
-                "complaint process", "grievance procedure", "conflict resolution", "mediation",
-                "zero tolerance", "policy implementation", "clear boundaries", "rules"
-            ],
-            
-            "inclusion_diversity": [
-                "diversity awareness", "diversity training", "cultural sensitivity", "different backgrounds",
-                "different perspectives", "inclusion efforts", "belonging", "feel valued", "equality",
-                "equity", "diverse workforce", "ethnic minority", "gender equality", "age discrimination",
-                "cultural competence", "bias", "prejudice", "stereotype", "implicit bias"
-            ],
-            
-            "training_development": [
-                "civility training", "respect workshop", "communication skills", "interpersonal skills",
-                "soft skills", "conflict management", "de-escalation", "emotional intelligence",
-                "empathy training", "team building", "awareness sessions", "professional development",
-                "continuing education", "learning opportunity", "skills development"
-            ],
-            
-            "recognition_appreciation": [
-                "recognition", "appreciation", "acknowledge", "praise", "reward", "incentivize",
-                "celebrate success", "positive feedback", "gratitude", "thank you", "recognition program",
-                "staff awards", "feeling valued", "contribution recognized", "acknowledge effort",
-                "meaningful recognition", "public praise", "private appreciation"
-            ],
-            
-            "work_environment": [
-                "physical environment", "work space", "office layout", "hot desking", 
-                "breakout space", "communication channels", "noise levels", "privacy", 
-                "communal areas", "break rooms", "lunch areas", "social space", "team space"
-            ],
-            
-            "stress_wellbeing": [
-                "stress levels", "emotional support", "mental health", "wellbeing initiatives",
-                "work-life balance", "pressure", "anxiety", "burnout", "self-care", "resilience",
-                "coping mechanisms", "support services", "staff wellbeing", "wellness programs"
-            ]
+        # Define themes with hierarchical structure (keywords + exclusions for themes/subthemes)
+        # Using spaces and title case for theme/subtheme keys for better readability
+        # --- Updated Structure ---
+        # Each theme/subtheme has 'keywords' and 'exclusions' lists.
+        self.themes = themes_dict if themes_dict else {
+            "Workload": {
+                "keywords": ["workload", "too much work", "excessive workload", "workload pressure"],
+                "exclusions": [r"workload balancing", r"workload analysis", r"manage workload"], # Moved from old exclusion dict
+                "subthemes": {
+                    "Pressure": {
+                        "keywords": ["burnout", "exhausted", "overworked", "high workload"],
+                        "exclusions": [] # Placeholder for specific subtheme exclusions
+                    },
+                    "Staffing Levels": {
+                        "keywords": ["staffing levels", "staffing shortages", "short staffed", "not enough staff", "under resourced", "understaffed", "rota gaps", "vacancies", "shift patterns", "last minute schedule changes", "unpredictable shifts"],
+                        "exclusions": []
+                    }
+                }
+            },
+            "Staffing": {
+                 "keywords": ["staffing", "recruitment", "retention", "agency staff", "bank shifts", "sickness absence", "skill mix", "skill drain", "agency rates"],
+                 "exclusions": [], # Added exclusions list
+                 "subthemes": {} # No subthemes defined here, structure remains simple
+            },
+            "Management": {
+                "keywords": ["management", "manager", "leadership", "supervisor"],
+                "exclusions": [r"time management", r"project management", r"asset management"], # Moved
+                 "subthemes": {
+                    "Support": {
+                        "keywords": ["supportive", "approachable", "listens", "understanding"],
+                        "exclusions": []
+                     },
+                    "Communication": {
+                        "keywords": ["unresponsive", "transparency", "consultation", "feedback"],
+                        "exclusions": []
+                    },
+                    "Behaviour": {
+                        "keywords": ["micromanagement", "favouritism", "nepotism", "autocratic", "bullying", "harassment"],
+                        "exclusions": []
+                    }
+                 }
+            },
+            "Facilities": {
+                "keywords": ["facilities", "equipment", "infrastructure", "environment", "building"],
+                "exclusions": [],
+                "subthemes": {
+                    "Equipment": {
+                        "keywords": ["outdated equipment", "broken equipment", "lack of equipment"],
+                        "exclusions": []
+                    },
+                    "Physical Environment": {
+                        "keywords": ["leaking roof", "asbestos", "ventilation", "heating", "lighting", "ward space", "privacy", "crowding", "noise levels"],
+                        "exclusions": []
+                    },
+                    "Infection Control": {
+                        "keywords": ["infection control", "cleanliness", "hygiene"],
+                        "exclusions": []
+                    }
+                }
+            },
+             "Career Development": {
+                "keywords": ["career", "development", "progression", "training", "promotion", "advancement"],
+                "exclusions": [r"career day", r"career fair"], # Moved
+                "subthemes": {
+                    "Progression": {
+                        "keywords": ["band progression", "promotion", "career stagnation", "pay scales", "agenda for change"],
+                        "exclusions": []
+                    },
+                    "Training Opportunities": {
+                        "keywords": ["apprenticeship", "training budget", "qualifications", "skill recognition", "CEPD", "protected learning time", "mandatory training", "clinical supervision", "mentorship", "simulation training", "induction", "competency framework"],
+                        "exclusions": []
+                    }
+                }
+            },
+            "Compensation": {
+                "keywords": ["pay", "salary", "compensation", "financial", "money"],
+                "exclusions": [r"compensation claim", r"injury compensation"], # Moved
+                "subthemes": {
+                    "Pay Level": {
+                        "keywords": ["cost of living", "salary freeze", "pay disparity", "living wage", "bank rates", "overtime pay"],
+                        "exclusions": []
+                    },
+                    "Benefits": {
+                        "keywords": ["London weighting", "pension deductions", "benefits package"],
+                        "exclusions": []
+                    },
+                    "Financial Stress": {
+                        "keywords": ["food banks", "financial stress", "tax burden"],
+                        "exclusions": []
+                    }
+                }
+            },
+            "Work Environment Culture": {
+                "keywords": ["environment", "culture", "atmosphere", "workplace", "toxic", "positive", "bullying", "harassment", "discrimination", "respect"],
+                "exclusions": [r"environmental health", r"physical environment improvement scheme"], # Moved
+                "subthemes": {
+                    "Bullying Harassment": {
+                        "keywords": ["bullying culture", "harassment", "toxic atmosphere", "cliques", "ostracized", "intimidation"],
+                        "exclusions": []
+                    },
+                    "Discrimination Equity": {
+                        "keywords": ["racial discrimination", "racism", "BAME", "ethnic minority", "equity", "gender equality", "age discrimination", "bias", "prejudice", "stereotype", "inclusion efforts", "belonging", "feel valued", "equality"],
+                        "exclusions": []
+                    },
+                    "Speaking Up": {
+                        "keywords": ["fear of speaking up", "psychological safety", "safe to speak up", "fear of reprisal", "whistleblowing", "FTSU guardians"],
+                        "exclusions": []
+                    },
+                    "Civility Respect": {
+                        "keywords": ["respectful language", "tone of voice", "speaking over", "interrupting", "talking behind back", "inclusive language", "civil discourse", "condescending", "patronizing", "dismissive", "listen to each other", "heard", "being ignored", "respect opinions", "polite conversation", "rude comments", "aggressive emails"],
+                        "exclusions": []
+                    },
+                    "Positive Culture": {
+                        "keywords": ["positive culture", "supportive culture", "appreciation", "recognition", "celebrate success", "gratitude", "thank you", "feeling valued", "contribution recognized", "team morale"],
+                        "exclusions": []
+                    }
+                }
+            },
+            "Patient Care Impact": {
+                "keywords": ["patient care", "patient safety", "quality of care", "service delivery"],
+                "exclusions": [],
+                "subthemes": {
+                    "Safety Incidents": {
+                        "keywords": ["corridor nursing", "missed observations", "medication errors", "safety incidents", "near misses", "DATIX", "patient harm", "SI investigations"],
+                        "exclusions": []
+                    },
+                    "Access Delays": {
+                        "keywords": ["delayed discharges", "waiting lists", "cancelled clinics", "12hr waits", "breaches"],
+                        "exclusions": []
+                    },
+                    "Care Quality": {
+                        "keywords": ["quality of care", "standards of care", "compassion"],
+                        "exclusions": []
+                    }
+                }
+            },
+            "Flexibility Worklife": {
+                "keywords": ["flexibility", "work-life", "balance", "hours", "shifts", "personal life", "family", "time"],
+                "exclusions": [ # Moved from old exclusion dict
+                     r"adequate staffing",
+                     r"sufficient staff",
+                     r"well staffed",
+                     r"good shift patterns",
+                     r"staffing levels improved"
+                 ],
+                "subthemes": {
+                    "Flexible Working": {
+                        "keywords": ["remote work", "agile working", "WFH", "compressed hours", "part-time options", "job share", "flexible hours"],
+                        "exclusions": []
+                    },
+                    "Work Life Balance": {
+                        "keywords": [
+                            "work-life balance",
+                            "childcare conflict",
+                            "elder care responsibility",
+                            "school pickup",
+                            "family time",
+                            "personal time",
+                            "flexible hours needed",
+                            "unpaid overtime",
+                            "mandatory overtime",
+                            "work encroach personal life"
+                        ],
+                        "exclusions": []
+                    }
+                }
+            },
+            "IT Systems": {
+                "keywords": ["systems", "technology", "digital", "software", "hardware"],
+                "exclusions": [r"IT department", r"IT support team", r"information technology strategy"], # Moved
+                "subthemes": {
+                    "System Usability": {
+                        "keywords": ["electronic prescribing", "CareFlow", "Trak", "EPR", "digital notes", "user friendly", "intuitive"],
+                        "exclusions": []
+                    },
+                    "System Performance": {
+                        "keywords": ["legacy systems", "login issues", "system downtime", "slow system", "crashes"],
+                        "exclusions": []
+                    },
+                    "Interoperability Support": {
+                        "keywords": ["interoperability", "cyber security", "outdated software", "it support", "helpdesk"],
+                        "exclusions": []
+                    }
+                }
+            },
+            "Wellbeing Services": {
+                "keywords": ["wellbeing", "occupational health", "counselling", "mental health", "support", "stress management", "resilience", "fitness", "financial advice", "health checks", "trauma support"],
+                "exclusions": [],
+                "subthemes": {}
+            },
+             "Governance Risk": {
+                "keywords": ["governance", "risk", "compliance", "policy", "audit", "reporting", "CQC"],
+                "exclusions": [r"corporate governance", r"board governance", r"risk management framework"], # Moved
+                "subthemes": {
+                    "Reporting Culture": {
+                        "keywords": ["reporting culture", "incident reporting", "learning from mistakes"],
+                        "exclusions": []
+                    },
+                    "Compliance Policy": {
+                        "keywords": ["compliance", "audits", "policy adherence", "documentation burden", "risk assessments", "CQC ratings", "standards"],
+                        "exclusions": []
+                    }
+                }
+            },
+            "Team Dynamics": {
+                "keywords": ["team", "teamwork", "collaboration", "colleagues", "interdepartmental", "MDT"],
+                "exclusions": [],
+                "subthemes": {
+                    "Collaboration": {
+                        "keywords": ["MDT working", "teamwork", "cooperation", "communication within team"],
+                        "exclusions": []
+                    },
+                    "Conflict Relations": {
+                        "keywords": ["interdepartmental conflict", "professional respect", "nurse-doctor relations", "support workers", "skill mix tension", "agency staff integration", "bank staff treatment"],
+                        "exclusions": []
+                    }
+                }
+            },
+             "Resource Allocation": {
+                "keywords": ["resources", "funding", "budget", "allocation", "equipment", "supplies"],
+                "exclusions": [],
+                 "subthemes": {
+                    "Staffing Resources": {
+                        "keywords": ["adequate staffing", "sufficient resources", "resource constraints"],
+                        "exclusions": []
+                    },
+                    "Fairness": {
+                        "keywords": ["fair allocation", "equal distribution", "prioritization", "fair workload", "balanced responsibilities"],
+                        "exclusions": []
+                    }
+                 }
+            },
+             "Estates Logistics": {
+                "keywords": ["estates", "logistics", "parking", "transport", "site", "security", "canteen", "lockers", "changing rooms"],
+                "exclusions": [r"real estate", r"estate planning"], # Moved
+                "subthemes": {
+                    "Site Access Transport": {
+                        "keywords": ["parking permits", "staff transport", "site access", "shuttle service", "bike storage"],
+                        "exclusions": []
+                    },
+                    "Site Facilities": {
+                        "keywords": ["security", "smoking areas", "canteen prices", "vending machines", "locker space", "changing rooms", "break rooms", "lunch areas", "social space"],
+                        "exclusions": []
+                    }
+                }
+            }
+            # Ensure all themes from the original list are covered and structured
         }
 
-        # Enhanced exclusion patterns to reduce false positives
-        self.exclusion_patterns = {
-            "workload": [r"workload balancing", r"workload analysis"],
-            "management": [r"time management", r"project management"],
-            "career_development": [r"career day", r"career fair"],
-            "compensation": [r"compensation claim", r"injury compensation"],
-            "work_environment": [r"work environment scheme", r"environmental health"],
-            "IT_systems": [r"IT department", r"IT technician"],
-            "training_support": [r"training room", r"training venue"],
-            "estates_logistics": [r"real estate", r"estate planning"],
-            "governance_risk": [r"corporate governance", r"board governance"]
-        }
-
-        # Load spaCy model for text processing
-        print("Loading spaCy model...")
-        self.nlp = spacy.load("en_core_web_sm")
+        # Load spaCy model for text processing (optional, can be removed if not used heavily)
+        # print("Loading spaCy model...")
+        # self.nlp = spacy.load("en_core_web_sm") # Consider removing if only using regex/transformers
 
         # Initialize Hugging Face sentiment analysis pipeline
-        print("Loading sentiment analysis model...")
-        self.sentiment_analyzer = pipeline(
-            "sentiment-analysis",
-            model="distilbert-base-uncased-finetuned-sst-2-english",
-            tokenizer="distilbert-base-uncased-finetuned-sst-2-english",
-            return_all_scores=True
-        )
+        print("[NLPProcessor] Loading sentiment analysis model...") # DEBUG
+        try:
+            self.sentiment_analyzer = pipeline(
+                "sentiment-analysis",
+                model="distilbert-base-uncased-finetuned-sst-2-english",
+                tokenizer="distilbert-base-uncased-finetuned-sst-2-english",
+                top_k=None # Use top_k=None instead of return_all_scores=True
+            )
+            print("[NLPProcessor] Sentiment analysis model loaded.") # DEBUG
+        except Exception as e:
+            print(f"[NLPProcessor] ERROR loading sentiment model: {e}") # DEBUG
+            raise # Re-raise the exception to ensure failure is clear
 
         # Preprocess themes and create refined patterns
-        self._preprocess_themes()
-        print("NLP processor initialized.")
+        print("[NLPProcessor] Preprocessing themes...") # DEBUG
+        try:
+            self._preprocess_themes()
+            print("[NLPProcessor] Themes preprocessed.") # DEBUG
+        except Exception as e:
+            print(f"[NLPProcessor] ERROR during theme preprocessing: {e}") # DEBUG
+            raise # Re-raise
+
+        print("[NLPProcessor] Initialization complete.") # DEBUG
 
     def _preprocess_themes(self):
-        """Preprocess themes for efficient matching with inclusion and exclusion patterns"""
-        # Convert all keywords to lowercase
-        self.themes = {theme: [kw.lower() for kw in keywords]
-                       for theme, keywords in self.themes.items()}
+        """Preprocess themes for efficient matching, handling hierarchical structure and exclusions."""
+        print("  [_preprocess_themes] Starting...") # DEBUG
+        self.refined_patterns = {} # Stores compiled regex patterns
+        theme_count = 0 # DEBUG
 
-        # Create refined theme patterns with include and exclude patterns
-        self.refined_patterns = {}
+        for theme_name, theme_data in self.themes.items():
+            theme_count += 1 # DEBUG
+            # print(f"  [_preprocess_themes] Processing theme {theme_count}: {theme_name}") # DEBUG - verbose
 
-        for theme, keywords in self.themes.items():
-            # Sort keywords by length (longest first) to prioritize longer matches
-            sorted_keywords = sorted(keywords, key=len, reverse=True)
+            # Initialize patterns for this theme
+            main_include_pattern = None
+            main_exclude_pattern = None
+            subtheme_patterns = {}
 
-            # Create include pattern (positive matches)
-            include_pattern = r'\b(' + '|'.join(re.escape(kw) for kw in sorted_keywords) + r')\b'
-            include_regex = re.compile(include_pattern, re.IGNORECASE)
+            # Compile main theme keywords
+            main_keywords = theme_data.get('keywords', [])
+            if main_keywords:
+                sorted_keywords = sorted([kw.lower() for kw in main_keywords], key=len, reverse=True)
+                include_pattern_str = r'\b(' + '|'.join(re.escape(kw) for kw in sorted_keywords) + r')\b'
+                main_include_pattern = re.compile(include_pattern_str, re.IGNORECASE)
 
-            # Create exclude pattern if available for this theme
-            exclude_regex = None
-            if theme in self.exclusion_patterns and self.exclusion_patterns[theme]:
-                exclude_pattern = r'\b(' + '|'.join(re.escape(ex) for ex in self.exclusion_patterns[theme]) + r')\b'
-                exclude_regex = re.compile(exclude_pattern, re.IGNORECASE)
+            # Compile main theme exclusion patterns
+            main_exclusions = theme_data.get('exclusions', [])
+            if main_exclusions:
+                exclude_pattern_str = r'\b(' + '|'.join(re.escape(ex.lower()) for ex in main_exclusions) + r')\b'
+                main_exclude_pattern = re.compile(exclude_pattern_str, re.IGNORECASE)
 
-            # Store both patterns
-            self.refined_patterns[theme] = {
-                'include': include_regex,
-                'exclude': exclude_regex
+            # Compile subtheme keywords and exclusions
+            subthemes_data = theme_data.get('subthemes', {})
+            for subtheme_name, subtheme_details in subthemes_data.items():
+                sub_include_pattern = None
+                sub_exclude_pattern = None
+
+                # Compile subtheme keywords
+                subtheme_keywords = subtheme_details.get('keywords', [])
+                if subtheme_keywords:
+                    sorted_sub_keywords = sorted([kw.lower() for kw in subtheme_keywords], key=len, reverse=True)
+                    sub_include_pattern_str = r'\b(' + '|'.join(re.escape(kw) for kw in sorted_sub_keywords) + r')\b'
+                    sub_include_pattern = re.compile(sub_include_pattern_str, re.IGNORECASE)
+
+                # Compile subtheme exclusion patterns
+                subtheme_exclusions = subtheme_details.get('exclusions', [])
+                if subtheme_exclusions:
+                    sub_exclude_pattern_str = r'\b(' + '|'.join(re.escape(ex.lower()) for ex in subtheme_exclusions) + r')\b'
+                    sub_exclude_pattern = re.compile(sub_exclude_pattern_str, re.IGNORECASE)
+
+                # Store compiled patterns for the subtheme
+                subtheme_patterns[subtheme_name] = {
+                    'include': sub_include_pattern,
+                    'exclude': sub_exclude_pattern
+                }
+
+            # Store all compiled patterns for the current theme
+            self.refined_patterns[theme_name] = {
+                'main': {'include': main_include_pattern, 'exclude': main_exclude_pattern},
+                'subthemes': subtheme_patterns
             }
 
-    def analyze_sentiment(self, text):
+        print(f"  [_preprocess_themes] Finished processing {theme_count} themes.") # DEBUG
+
+    def analyze_sentiment(self, text: str) -> Tuple[float, str]:
         """
-        Analyze sentiment of a text using Hugging Face transformers
+        Analyze sentiment of a text using Hugging Face transformers.
 
         Args:
-            text (str): Text to analyze
+            text (str): Text to analyze.
 
         Returns:
-            float: Sentiment score between 0 and 1 (0 = negative, 1 = positive)
+            Tuple[float, str]: Sentiment score (0=neg, 1=pos) and sentiment category ('positive', 'negative', 'neutral').
         """
-        if not text or len(text.strip()) == 0:
-            return 0.5
-
         try:
-            # Get all sentiment scores
-            results = self.sentiment_analyzer(text)
+            # Ensure text is not empty before proceeding
+            if not text or len(text.strip()) == 0:
+                return 0.5, 'neutral'
 
-            # Format results into the expected output
-            # Hugging Face returns labels as POSITIVE/NEGATIVE, convert to match required format
-            scores = {item['label']: item['score'] for item in results[0]}
+            # Let the pipeline handle truncation directly
+            # No need to manually check length and truncate beforehand
+            results = self.sentiment_analyzer(text, truncation=True, max_length=self.sentiment_analyzer.tokenizer.model_max_length)
+            # results is like [[{'label': 'POSITIVE', 'score': 0.99}, {'label': 'NEGATIVE', 'score': 0.01}]]
 
-            if 'POSITIVE' in scores:
-                return scores['POSITIVE']
+            # Check if results are valid
+            if not results or not results[0] or not isinstance(results[0], list) or len(results[0]) == 0:
+                 print(f"Warning: Sentiment analyzer returned unexpected results for text: {text[:100]}...")
+                 return 0.5, 'neutral'
+
+            scores = {item['label'].lower(): item['score'] for item in results[0]}
+            positive_score = scores.get('positive', 0.0)
+            # negative_score = scores.get('negative', 0.0) # Can use this too
+
+            # Determine category based on positive score
+            if positive_score > 0.6:
+                category = 'positive'
+            elif positive_score < 0.4:
+                category = 'negative'
+                # Adjust score to be 0-1 where 0 is most negative
+                # We use the positive score directly (0-1 range) where ~0 is negative, ~1 is positive
             else:
-                return 0.5  # Default to neutral if POSITIVE not found
+                category = 'neutral'
+
+            # Return the positive score (acts as our 0-1 sentiment scale) and the category
+            return positive_score, category
+
         except Exception as e:
             print(f"Error analyzing sentiment for text: {text[:100]}... Error: {str(e)}")
-            return 0.5  # Default to neutral on error
+            return 0.5, 'neutral' # Default to neutral on error
 
-    def extract_themes(self, text):
+    def extract_themes(self, text: str) -> List[Tuple[str, Optional[str]]]:
         """
-        Extract themes from text using refined rule-based matching with exclusions
+        Extract themes and subthemes from text using refined rule-based matching,
+        respecting main theme and subtheme exclusions.
 
         Args:
-            text (str): Text to extract themes from
+            text (str): Text to extract themes from.
 
         Returns:
-            list: List of identified themes
+            List[Tuple[str, Optional[str]]]: List of (main_theme, subtheme_name or None) tuples.
         """
         if not text or len(text.strip()) == 0:
             return []
 
-        text = text.lower()
-        found_themes = []
+        text_lower = text.lower()
+        found_themes_subthemes = set() # Use a set to avoid duplicates
 
-        # Use refined patterns with include/exclude logic
-        for theme, patterns in self.refined_patterns.items():
-            # Check if text matches include pattern
-            if patterns['include'].search(text):
-                # Check if we should exclude this match
-                if patterns['exclude'] and patterns['exclude'].search(text):
-                    # Skip if exclusion pattern matches
-                    continue
-                found_themes.append(theme)
+        for theme_name, patterns in self.refined_patterns.items():
+            # --- 1. Check Main Theme Exclusion --- 
+            # If main theme is excluded, skip this entire theme (including its subthemes)
+            main_exclude_pattern = patterns['main']['exclude']
+            if main_exclude_pattern and main_exclude_pattern.search(text_lower):
+                continue # Skip this theme
 
-        return found_themes
+            subtheme_matched_in_this_theme = False # Track if any subtheme matched for *this* main theme
 
-    def process_comment(self, text):
+            # --- 2. Check Subthemes (Inclusion and Exclusion) ---
+            for subtheme_name, sub_patterns in patterns['subthemes'].items():
+                include_pattern = sub_patterns.get('include')
+                exclude_pattern = sub_patterns.get('exclude')
+
+                # Check for inclusion match
+                include_match = include_pattern and include_pattern.search(text_lower)
+
+                if include_match:
+                    # Now check for specific subtheme exclusion match
+                    exclude_match = exclude_pattern and exclude_pattern.search(text_lower)
+
+                    if not exclude_match:
+                        # Match found and not excluded!
+                        found_themes_subthemes.add((theme_name, subtheme_name))
+                        subtheme_matched_in_this_theme = True
+                        # Don't break here, allow multiple subthemes of the same main theme
+
+            # --- 3. Check Main Theme Keywords (if no subtheme matched) ---
+            # Only check main keywords if no specific subtheme of this theme was matched
+            if not subtheme_matched_in_this_theme:
+                main_include_pattern = patterns['main']['include']
+                # No need to check main exclusion again (already done)
+                if main_include_pattern and main_include_pattern.search(text_lower):
+                     found_themes_subthemes.add((theme_name, None)) # None indicates main theme match without specific subtheme
+
+        return list(found_themes_subthemes)
+
+    def process_comment(self, text: str) -> Dict[str, Any]:
         """
-        Process a single comment to extract sentiment and themes
+        Process a single comment to extract themes, overall sentiment (based on sentence average),
+        and sentence-level sentiment details.
 
         Args:
-            text (str): Text comment to process
+            text (str): Text comment to process.
 
         Returns:
-            dict: Dictionary with sentiment score and themes
+            dict: Dictionary with:
+                  'overall_sentiment_score': float (average score of sentences)
+                  'overall_sentiment_category': str ('positive', 'negative', 'neutral')
+                  'sentence_sentiments': list of tuples [(sentence, score, category)]
+                  'themes_subthemes': list of tuples [(theme, subtheme)]
         """
-        # Default values
-        sentiment_score = 0.5  # Neutral by default
-        themes = []
+        overall_sentiment_score = 0.5
+        overall_sentiment_category = 'neutral'
+        sentence_sentiments = []
+        themes_subthemes = []
 
-        try:
-            # Only analyze text that has content
-            if text and len(text.strip()) > 0:
-                # Truncate text if it's too long for the model
-                # The sentiment model has a limit of 512 tokens
-                if len(text) > 1500:  # Approximate character count for 512 tokens
-                    print(f"Warning: Text too long ({len(text)} chars), truncating for sentiment analysis.")
-                    truncated_text = text[:1500]
+        if text and len(text.strip()) > 0:
+            try:
+                # 1. Extract Themes (from the whole comment)
+                themes_subthemes = self.extract_themes(text)
+
+                # 2. Analyze Sentiment Sentence by Sentence
+                sentences = nltk.sent_tokenize(text)
+                sentence_scores = []
+                valid_sentences_count = 0
+
+                for sentence in sentences:
+                    if len(sentence.strip()) > 0:
+                        sentence_score, sentence_category = self.analyze_sentiment(sentence)
+                        sentence_sentiments.append((sentence, sentence_score, sentence_category))
+                        sentence_scores.append(sentence_score)
+                        valid_sentences_count += 1
+
+                # 3. Calculate Overall Sentiment (average of sentences)
+                if valid_sentences_count > 0:
+                    overall_sentiment_score = sum(sentence_scores) / valid_sentences_count
+                    # Determine overall category based on average score
+                    if overall_sentiment_score > 0.6:
+                        overall_sentiment_category = 'positive'
+                    elif overall_sentiment_score < 0.4:
+                        overall_sentiment_category = 'negative'
+                    else:
+                        overall_sentiment_category = 'neutral'
                 else:
-                    truncated_text = text
-                
-                # Get sentiment
-                sentiment_score = self.analyze_sentiment(truncated_text)
-                
-                # Extract themes
-                themes = self.extract_themes(text)
-        except Exception as e:
-            print(f"Error processing comment: {str(e)}")
-            # Keep default values in case of error
-            
-        # Convert themes to dictionary
-        theme_dict = {theme: 1 for theme in themes}
-        
-        return {
-            'sentiment': sentiment_score,
-            'themes': theme_dict
-        }
+                    # Handle case with no valid sentences (e.g., only punctuation)
+                    overall_sentiment_score = 0.5
+                    overall_sentiment_category = 'neutral'
 
-    def process_dataframe(self, df, comment_col='free_text_comments'):
+            except Exception as e:
+                print(f"Error processing comment: '{text[:100]}...' Error: {str(e)}")
+                # Reset to defaults in case of partial processing failure
+                overall_sentiment_score = 0.5
+                overall_sentiment_category = 'neutral'
+                sentence_sentiments = []
+                # themes_subthemes might have been partially populated, decide if reset is needed
+                # themes_subthemes = []
+
+        results = {
+            'overall_sentiment_score': overall_sentiment_score,
+            'overall_sentiment_category': overall_sentiment_category,
+            'sentence_sentiments': sentence_sentiments, # List of (sentence, score, category)
+            'themes_subthemes': themes_subthemes
+        }
+        return results
+
+    def process_dataframe(self, df: pd.DataFrame, comment_col: str = 'cleaned_comments') -> pd.DataFrame:
         """
-        Process all comments in a dataframe
+        Process all comments in a dataframe, adding sentiment and theme columns.
 
         Args:
-            df (pd.DataFrame): Dataframe with comments
-            comment_col (str): Name of the column containing comments
+            df (pd.DataFrame): Dataframe with comments (expects 'cleaned_comments' and 'department').
+            comment_col (str): Name of the column containing cleaned comments.
 
         Returns:
-            pd.DataFrame: Dataframe with sentiment and theme columns
+            pd.DataFrame: Dataframe with new columns: 'sentiment_score', 'sentiment_category', 'themes_subthemes'.
         """
-        # Create a copy to avoid modifying the original
+        if comment_col not in df.columns:
+             raise ValueError(f"Comment column '{comment_col}' not found in DataFrame.")
+        if 'department' not in df.columns:
+             raise ValueError(f"Required column 'department' not found in DataFrame.")
+
+        # Apply process_comment to each comment
+        # This returns a Series of dictionaries
+        processed_results = df[comment_col].apply(self.process_comment)
+
+        # Create new columns from the dictionaries in the Series
         result_df = df.copy()
+        # Store overall sentiment (based on sentence average)
+        result_df['overall_sentiment_score'] = processed_results.apply(lambda x: x['overall_sentiment_score'])
+        result_df['overall_sentiment_category'] = processed_results.apply(lambda x: x['overall_sentiment_category'])
+        # Store sentence-level details
+        result_df['sentence_sentiments'] = processed_results.apply(lambda x: x['sentence_sentiments'])
+        # Store themes (extracted from whole comment)
+        result_df['themes_subthemes'] = processed_results.apply(lambda x: x['themes_subthemes'])
 
-        # Initialize sentiment and theme columns
-        result_df['sentiment_score'] = 0.5
+        # --- Remove old/redundant columns ---
+        cols_to_drop = []
+        # Check if old columns exist before trying to drop
+        if 'sentiment_score' in result_df.columns:
+             cols_to_drop.append('sentiment_score')
+        if 'sentiment_category' in result_df.columns:
+             cols_to_drop.append('sentiment_category')
+        # Remove old theme columns if they exist from previous versions (excluding themes_subthemes)
+        old_theme_cols = [col for col in result_df.columns if col.startswith('theme_') and col != 'themes_subthemes']
+        cols_to_drop.extend(old_theme_cols)
         
-        # Initialize theme columns
-        for theme in self.themes:
-            result_df[f'theme_{theme}'] = 0
-
-        # Process each comment
-        for idx, row in result_df.iterrows():
-            comment = row[comment_col]
-
-            # Skip empty comments
-            if pd.isnull(comment) or comment == "":
-                continue
-
-            # Process the comment
-            processed = self.process_comment(comment)
-
-            # Update the dataframe
-            result_df.at[idx, 'sentiment_score'] = processed['sentiment']
-
-            # Update theme columns
-            for theme in processed['themes']:
-                result_df.at[idx, f'theme_{theme}'] = 1
+        if cols_to_drop:
+            print(f"Dropping old/redundant columns: {cols_to_drop}")
+            result_df = result_df.drop(columns=cols_to_drop)
 
         return result_df
 
-    def update_theme_rules(self, theme, add_keywords=None, remove_keywords=None, add_exclusions=None):
+    def aggregate_results(self, df: pd.DataFrame, dept_col: str = 'department') -> Dict[str, Any]:
         """
-        Update rules for a specific theme
+        Aggregate NLP results overall and by department.
 
         Args:
-            theme (str): Theme to update
-            add_keywords (list): Keywords to add to theme
-            remove_keywords (list): Keywords to remove from theme
-            add_exclusions (list): Exclusion patterns to add
-        """
-        # Create theme if it doesn't exist
-        if theme not in self.themes:
-            if add_keywords:
-                self.themes[theme] = []
-            else:
-                raise ValueError(f"Theme '{theme}' not found and no keywords provided")
-
-        # Update include keywords
-        if add_keywords:
-            self.themes[theme].extend([kw for kw in add_keywords if kw not in self.themes[theme]])
-
-        if remove_keywords:
-            self.themes[theme] = [kw for kw in self.themes[theme] if kw not in remove_keywords]
-
-        # Update exclusions
-        if add_exclusions:
-            if theme not in self.exclusion_patterns:
-                self.exclusion_patterns[theme] = []
-
-            self.exclusion_patterns[theme].extend([ex for ex in add_exclusions
-                                                  if ex not in self.exclusion_patterns[theme]])
-
-        # Regenerate patterns after updates
-        self._preprocess_themes()
-        print(f"Theme '{theme}' rules updated successfully")
-
-    def aggregate_by_department(self, df, dept_col='department'):
-        """
-        Aggregate NLP results by department
-
-        Args:
-            df (pd.DataFrame): Dataframe with processed comments
-            dept_col (str): Name of the column containing department names
+            df (pd.DataFrame): Dataframe with processed comments (output of process_dataframe).
+            dept_col (str): Name of the column containing department names.
 
         Returns:
-            pd.DataFrame: Dataframe with department-level aggregations
+            Dict[str, Any]: Dictionary containing 'overall_summary' and 'department_summary'.
         """
-        # Group by department
-        dept_groups = df.groupby(dept_col)
+        # Ensure new columns exist (UPDATED check)
+        required_cols = ['themes_subthemes', 'overall_sentiment_score', 'overall_sentiment_category', 'sentence_sentiments']
+        if not all(col in df.columns for col in required_cols):
+            missing = [col for col in required_cols if col not in df.columns]
+            # OLD check message referenced wrong columns
+            # raise ValueError("Input DataFrame must contain 'themes_subthemes', 'sentiment_score', and 'sentiment_category' columns.")
+            raise ValueError(f"Input DataFrame must contain required columns for aggregation: {missing}")
 
-        # Prepare aggregation dictionary
-        agg_dict = {
-            'sentiment_score': 'mean',
-            'cleaned_comments': 'count'
+        # --- Helper function for aggregation logic (UPDATED) ---
+        def calculate_summary(data: pd.DataFrame) -> Dict[str, Any]:
+            summary = {}
+            total_comments = len(data)
+            if total_comments == 0:
+                # Return empty structure if no data
+                return {
+                    "comment_count": 0,
+                    "avg_sentiment": 0.5, # Overall comment avg sentiment
+                    "sentiment_distribution": {"positive": 0, "neutral": 0, "negative": 0}, # Overall comment category distribution
+                    "themes": {},
+                    "subthemes": {}
+                }
+
+            summary['comment_count'] = total_comments
+            # Use the new overall score column for average sentiment
+            summary['avg_sentiment'] = data['overall_sentiment_score'].mean()
+            # Use the new overall category column for overall distribution
+            summary['sentiment_distribution'] = data['overall_sentiment_category'].value_counts().to_dict()
+            # Ensure all categories exist
+            for cat in ['positive', 'neutral', 'negative']:
+                summary['sentiment_distribution'].setdefault(cat, 0)
+
+            # Explode themes and subthemes for counting and sentiment analysis
+            # Create rows: comment_id, theme, subtheme, list_of_sentence_sentiments
+            exploded_data = []
+            for idx, row in data.iterrows():
+                comment_id = idx # Use index as comment identifier
+                themes_subthemes_list = row['themes_subthemes']
+                sentence_sentiments = row['sentence_sentiments'] # List of (sentence, score, category)
+                overall_score = row['overall_sentiment_score'] # Keep overall comment score for theme avg
+
+                if not themes_subthemes_list: # Handle comments with no themes
+                     continue
+                for theme, subtheme in themes_subthemes_list:
+                    exploded_data.append({
+                        'comment_id': comment_id,
+                        'theme': theme,
+                        'subtheme': subtheme, # Will be None if it's just a main theme match
+                        'sentence_sentiments': sentence_sentiments,
+                        'overall_comment_score': overall_score # Pass comment score for theme avg
+                    })
+
+            if not exploded_data:
+                 summary['themes'] = {}
+                 summary['subthemes'] = {}
+                 return summary
+
+            exploded_df = pd.DataFrame(exploded_data)
+
+            # --- Aggregate by main theme (UPDATED SENTIMENT LOGIC) ---
+            theme_summary = {}
+            grouped_by_theme = exploded_df.groupby('theme')
+            for theme_name, group in grouped_by_theme:
+                theme_stats = {}
+                unique_comment_ids = group['comment_id'].unique()
+                theme_stats['comment_count'] = len(unique_comment_ids)
+                
+                # Calculate avg theme sentiment based on OVERALL scores of comments mentioning the theme
+                theme_stats['avg_sentiment'] = group.drop_duplicates(subset=['comment_id'])['overall_comment_score'].mean() if not group.empty else 0.5
+                
+                # Calculate SENTENCE sentiment distribution for comments mentioning this theme
+                sentence_category_counts = Counter()
+                # Iterate through unique comments to avoid double-counting sentences if a comment matches multiple subthemes of the same main theme
+                for comment_id in unique_comment_ids:
+                    # Get the sentence sentiments for this comment (take first row, should be same for all rows with this comment_id in the group)
+                    comment_sentences = group[group['comment_id'] == comment_id]['sentence_sentiments'].iloc[0]
+                    if comment_sentences: # Check if list is not empty
+                         for _, _, category in comment_sentences:
+                             sentence_category_counts[category] += 1
+                            
+                sentiment_dist = dict(sentence_category_counts)
+                for cat in ['positive', 'neutral', 'negative']:
+                     sentiment_dist.setdefault(cat, 0)
+                theme_stats['sentiment_distribution'] = sentiment_dist # Store sentence-level distribution
+                theme_summary[theme_name] = theme_stats
+
+            summary['themes'] = theme_summary
+
+            # --- Aggregate by subtheme (theme, subtheme pair) (UPDATED SENTIMENT LOGIC) ---
+            subtheme_summary = {}
+            # Filter out rows where subtheme is None
+            subthemes_only_df = exploded_df.dropna(subset=['subtheme'])
+            if not subthemes_only_df.empty:
+                grouped_by_subtheme = subthemes_only_df.groupby(['theme', 'subtheme'])
+                for (theme_name, subtheme_name), group in grouped_by_subtheme:
+                    subtheme_stats = {}
+                    unique_comment_ids_sub = group['comment_id'].unique()
+                    subtheme_stats['comment_count'] = len(unique_comment_ids_sub)
+                    
+                    # Calculate avg subtheme sentiment based on OVERALL scores of comments mentioning the subtheme
+                    subtheme_stats['avg_sentiment'] = group.drop_duplicates(subset=['comment_id'])['overall_comment_score'].mean() if not group.empty else 0.5
+
+                    # Calculate SENTENCE sentiment distribution for comments mentioning this subtheme
+                    sentence_category_counts_sub = Counter()
+                    for comment_id in unique_comment_ids_sub:
+                         comment_sentences = group[group['comment_id'] == comment_id]['sentence_sentiments'].iloc[0]
+                         if comment_sentences:
+                             for _, _, category in comment_sentences:
+                                 sentence_category_counts_sub[category] += 1
+                                
+                    sentiment_dist_sub = dict(sentence_category_counts_sub)
+                    for cat in ['positive', 'neutral', 'negative']:
+                         sentiment_dist_sub.setdefault(cat, 0)
+                    subtheme_stats['sentiment_distribution'] = sentiment_dist_sub # Store sentence-level distribution
+
+                    # Store using nested dict
+                    if theme_name not in subtheme_summary:
+                        subtheme_summary[theme_name] = {}
+                    subtheme_summary[theme_name][subtheme_name] = subtheme_stats
+
+            summary['subthemes'] = subtheme_summary
+
+            return summary
+
+        # --- Calculate Overall Summary ---
+        print("Calculating overall summary...")
+        overall_summary = calculate_summary(df)
+
+        # --- Calculate Department-Level Summary ---
+        print("Calculating department summaries...")
+        department_summary = {}
+        if dept_col in df.columns:
+            for dept_name, dept_group in df.groupby(dept_col):
+                print(f"  Processing department: {dept_name}")
+                department_summary[dept_name] = calculate_summary(dept_group)
+        else:
+            print(f"Warning: Department column '{dept_col}' not found. Cannot create department summaries.")
+
+
+        return {
+            "overall_summary": overall_summary,
+            "department_summary": department_summary
         }
 
-        # Add theme columns to aggregation
-        for theme in self.themes:
-            agg_dict[f'theme_{theme}'] = 'sum'
-
-        # Create department-level aggregations
-        dept_stats = dept_groups.agg(agg_dict).reset_index()
-
-        # Rename columns for clarity
-        dept_stats = dept_stats.rename(columns={
-            'cleaned_comments': 'comment_count',
-            'sentiment_score': 'avg_sentiment'
-        })
-
-        # Calculate percentages for each theme
-        for theme in self.themes:
-            # Calculate raw count and percentage
-            theme_col = f'theme_{theme}'
-            percent_col = f'{theme}_percent'
-            dept_stats[percent_col] = (dept_stats[theme_col] / dept_stats['comment_count'] * 100).round(1)
-
-            # Rename the raw count column
-            dept_stats = dept_stats.rename(columns={theme_col: f'{theme}_count'})
-
-        # Normalize sentiment score to 0-1 range (if not already)
-        if dept_stats['avg_sentiment'].max() > 1:
-            dept_stats['avg_sentiment'] = dept_stats['avg_sentiment'] / 100
-
-        # Round sentiment score
-        dept_stats['avg_sentiment'] = dept_stats['avg_sentiment'].round(2)
-
-        return dept_stats
-
-def process_nlp_pipeline(df, themes_dict=None, exclusion_patterns=None):
+# Update the standalone function
+def process_nlp_pipeline(df: pd.DataFrame, themes_dict: Optional[Dict] = None) -> Tuple[pd.DataFrame, Dict[str, Any]]:
     """
-    Run the complete NLP pipeline on a preprocessed dataframe
+    Run the complete NLP pipeline on a preprocessed dataframe.
 
     Args:
-        df (pd.DataFrame): Preprocessed dataframe
-        themes_dict (dict, optional): Dictionary of themes and keywords
-        exclusion_patterns (dict, optional): Dictionary of exclusion patterns
+        df (pd.DataFrame): Preprocessed dataframe (output of preprocessing.main).
+        themes_dict (dict, optional): Dictionary of themes and subthemes.
 
     Returns:
-        pd.DataFrame: Dataframe with sentiment and theme analysis
+        Tuple[pd.DataFrame, Dict[str, Any]]:
+            - comment_level_df: Dataframe with detailed NLP results per comment.
+            - aggregated_results: Dictionary with overall and department summaries.
     """
-    # Initialize NLP processor
-    nlp_processor = NLPProcessor(themes_dict)
+    try: # Add top-level try block
+        # Initialize NLP processor
+        print("[process_nlp_pipeline] Initializing NLPProcessor...") # DEBUG
+        nlp_processor = NLPProcessor(themes_dict)
+        print("[process_nlp_pipeline] NLPProcessor Initialized.") # DEBUG
 
-    # Add exclusion patterns if provided
-    if exclusion_patterns:
-        for theme, patterns in exclusion_patterns.items():
-            nlp_processor.update_theme_rules(theme, add_exclusions=patterns)
+        print("[process_nlp_pipeline] Processing comments dataframe...") # DEBUG
+        comment_level_df = nlp_processor.process_dataframe(df, comment_col='cleaned_comments')
+        print(f"[process_nlp_pipeline] Comments dataframe processed. Shape: {comment_level_df.shape}") # DEBUG
 
-    print("Processing comments...")
-    comment_df = nlp_processor.process_dataframe(df)
-    
-    # Verify sentiment_score column exists
-    if 'sentiment_score' not in comment_df.columns:
-        print("Warning: sentiment_score column not found, adding default values")
-        comment_df['sentiment_score'] = 0.5
-    
-    # Debug output
-    print(f"Processed {len(comment_df)} comments.")
-    print(f"Columns in processed data: {comment_df.columns.tolist()}")
-    
-    # Ensure we have at least one row to verify structure
-    if len(comment_df) > 0:
-        first_row = comment_df.iloc[0]
-        print(f"Sample sentiment_score: {first_row.get('sentiment_score', 'NOT FOUND')}")
-        
-        # Check theme columns
-        theme_cols = [col for col in comment_df.columns if col.startswith('theme_')]
-        print(f"Theme columns: {theme_cols}")
+        # Verify essential columns exist (UPDATED column names)
+        required_cols = ['overall_sentiment_score', 'overall_sentiment_category', 'sentence_sentiments', 'themes_subthemes', 'department']
+        if not all(col in comment_level_df.columns for col in required_cols):
+            missing = [col for col in required_cols if col not in comment_level_df.columns]
+            print(f"[process_nlp_pipeline] ERROR: Missing required columns after processing: {missing}") # DEBUG
+            raise RuntimeError(f"NLP processing failed to produce required columns: {missing}")
 
-    return comment_df
+        print(f"[process_nlp_pipeline] Processed {len(comment_level_df)} comments successfully at comment level.") # DEBUG
+        if not comment_level_df.empty:
+            print("[process_nlp_pipeline] Sample processed comment data:") # DEBUG
+            # Use to_string to avoid potential display issues with complex data in print
+            # UPDATED column names in the print statement
+            print(comment_level_df[['department', 'cleaned_comments', 'overall_sentiment_score', 'overall_sentiment_category', 'sentence_sentiments', 'themes_subthemes']].head().to_string()) # DEBUG
 
-# Example usage (would be integrated with the previous preprocessing code)
+
+        print("[process_nlp_pipeline] Aggregating results...") # DEBUG
+        aggregated_results = nlp_processor.aggregate_results(comment_level_df, dept_col='department')
+        print("[process_nlp_pipeline] Aggregation complete.") # DEBUG
+
+        print("[process_nlp_pipeline] NLP Pipeline finished successfully.") # DEBUG
+        return comment_level_df, aggregated_results
+
+    except Exception as e:
+        print(f"[process_nlp_pipeline] FATAL ERROR during NLP pipeline execution: {e}") # DEBUG
+        import traceback
+        traceback.print_exc() # Print detailed traceback to wherever stderr is directed
+        # Re-raise the exception so the API endpoint knows something went wrong
+        raise e
+
+
+# Example usage (for testing within the module)
 if __name__ == "__main__":
-    # Assuming processed_data from the previous stage is available
-    # This would be replaced with actual file path and processing when running the code
-    sample_file_path = "staff_feedback.xlsx"
-
-    # Sample exclusion patterns
-    sample_exclusions = {
-        "workload": ["workflow", "work load balancing"],
-        "staffing": ["staff meeting", "staffing agency"],
-        "management": ["time management", "project management"],
-        "career_development": ["career day", "career fair"],
-        "compensation": ["compensation claim", "injury compensation"],
-        "work_environment": ["work environment scheme", "environmental health"],
-        "IT_systems": ["IT department", "IT technician"],
-        "training_support": ["training room", "training venue"],
-        "estates_logistics": ["real estate", "estate planning"],
-        "governance_risk": ["corporate governance", "board governance"]
+    # Create a sample DataFrame similar to the output of preprocessing.main
+    sample_data = {
+        'department': ['Surgery', 'Surgery', 'Medicine', 'Medicine', 'Admin', 'Surgery'],
+        'free_text_comments': [
+            "The workload is too high, constant pressure.",
+            "Management is unresponsive to staffing level concerns.",
+            "Good teamwork, but the IT systems are slow.",
+            "Need better career development opportunities.",
+            "Parking is expensive.",
+            "Feeling burnt out due to short staffing."
+        ],
+        'cleaned_comments': [
+            "the workload is too high constant pressure",
+            "management is unresponsive to staffing level concerns",
+            "good teamwork but the it systems are slow",
+            "need better career development opportunities",
+            "parking is expensive",
+            "feeling burnt out due to short staffing"
+        ],
+         'word_count': [6, 7, 7, 5, 3, 6],
+         'processing_date': ['2023-10-27'] * 6,
+         'original_comment': [
+            "The workload is too high, constant pressure.",
+            "Management is unresponsive to staffing level concerns.",
+            "Good teamwork, but the IT systems are slow.",
+            "Need better career development opportunities.",
+            "Parking is expensive.",
+            "Feeling burnt out due to short staffing."
+        ]
     }
+    sample_df = pd.DataFrame(sample_data)
 
-    # Run NLP pipeline with exclusions
-    comment_level_results = process_nlp_pipeline(
-        processed_data,
-        exclusion_patterns=sample_exclusions
-    )
+    try:
+        # Run NLP pipeline
+        comment_results_df, aggregated_data = process_nlp_pipeline(sample_df)
 
-    # Display sample results
-    print("\nSample of comment-level results:")
-    print(comment_level_results[['department', 'cleaned_comments', 'sentiment', 'sentiment_score'] +
-                             [f'theme_{theme}' for theme in NLPProcessor().themes]].head())
+        # Display sample results
+        print("\n--- Sample Comment-Level Results ---")
+        print(comment_results_df[['department', 'sentiment_score', 'sentiment_category', 'themes_subthemes']].head())
 
-    print("\nDepartment-level aggregations:")
-    print(comment_level_results.head())
+        print("\n--- Aggregated Results ---")
+        import json
+        print(json.dumps(aggregated_data, indent=2, default=str)) # Use json.dumps for pretty printing
+
+    except Exception as e:
+        print(f"\nAn error occurred during example execution: {e}")
+        import traceback
+        traceback.print_exc()

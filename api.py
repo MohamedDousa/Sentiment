@@ -10,387 +10,468 @@ Original file is located at
 # api.py - FastAPI backend
 from fastapi import FastAPI, HTTPException, Query, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from typing import List, Dict, Optional, Any
+from pydantic import BaseModel, Field # Import Field
+from typing import List, Dict, Optional, Any, Tuple
 import json
 import os
 import tempfile
 from datetime import datetime
+import pandas as pd # Import pandas
 
-# Import the processing functions from previous stages
-# In a real-world scenario, these would be properly imported from the respective modules
-from preprocessing import load_data, preprocess_data, group_by_department
-from nlp_pipeline import process_nlp_pipeline, NLPProcessor
-# Optional import for the predictive model
-try:
-    from predictive_model import run_predictive_modeling
-except ImportError:
-    print("Predictive model module not available")
-    run_predictive_modeling = None
+# Import the processing functions
+# Ensure these imports reflect the updated function signatures and return types
+from preprocessing import load_data, preprocess_data, main as main_preprocessing # Removed group_by_department, added main
+from nlp_pipeline import process_nlp_pipeline, NLPProcessor # process_nlp_pipeline now returns df, dict
 
-# Define data models for API responses
-class ThemeContribution(BaseModel):
-    feature: str
-    contribution_pct: int
+# Remove predictive model import if not used
+# try:
+#     from predictive_model import run_predictive_modeling
+# except ImportError:
+#     print("Predictive model module not available")
+#     run_predictive_modeling = None
 
-class DepartmentRisk(BaseModel):
+# --- Pydantic Models for API Responses ---
+
+class SentimentDistribution(BaseModel):
+    positive: int = 0
+    neutral: int = 0
+    negative: int = 0
+
+class ThemeStats(BaseModel):
+    comment_count: int
+    avg_sentiment: float
+    sentiment_distribution: SentimentDistribution
+
+class SubThemeStats(ThemeStats): # Inherits fields from ThemeStats
+    pass
+
+# Structure for theme results within analysis summaries
+class ThemeSummary(BaseModel):
+    themes: Dict[str, ThemeStats] = Field(default_factory=dict)
+    # Nested dictionary: { theme_name: { subtheme_name: SubThemeStats } }
+    subthemes: Dict[str, Dict[str, SubThemeStats]] = Field(default_factory=dict)
+
+
+# Model for the overall analysis summary
+class OverallAnalysis(ThemeSummary): # Inherits themes/subthemes structure
+    comment_count: int
+    avg_sentiment: float
+    sentiment_distribution: SentimentDistribution
+
+# Model for a single department's analysis summary
+class DepartmentAnalysis(OverallAnalysis): # Inherits all fields from OverallAnalysis
     department: str
-    risk_score: float
-    high_risk: bool
-    top_themes: List[Dict[str, Any]] = []
 
+# Model for the list of departments
 class DepartmentList(BaseModel):
     departments: List[str]
 
-# Initialize FastAPI app
+# Model for sample comment response
+class CommentSample(BaseModel):
+    department: str
+    original_comment: str # Show original comment
+    overall_sentiment_score: float
+    overall_sentiment_category: str
+    themes_subthemes: List[Tuple[str, Optional[str]]] = Field(default_factory=list)
+
+class CommentSampleResponse(BaseModel):
+    samples: List[CommentSample]
+    total_matching: int
+
+# Model for the basic data summary endpoint
+class DataSummary(BaseModel):
+    total_comments: int
+    total_departments: int
+    avg_comments_per_department: float
+    sentiment_distribution: SentimentDistribution # Use the defined model
+    high_negative_sentiment_departments: int # Renamed from high_risk
+    last_updated: Optional[str] = None
+
+# Model for upload response
+class UploadResponse(BaseModel):
+    status: str
+    file_name: str
+    comments_processed: int
+    departments_found: int # Renamed for clarity
+
+# --- FastAPI App Initialization ---
 app = FastAPI(
     title="Staff Feedback Analysis API",
-    description="API for analyzing staff feedback and identifying department risk levels",
-    version="1.0.0"
+    description="API for analyzing staff feedback themes, subthemes, and sentiment by department and overall.",
+    version="1.1.0" # Version bump
 )
 
-# Enable CORS for frontend integration
+# Enable CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, replace with specific frontend URL
+    allow_origins=["*"], # Adjust in production
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Store processed data in memory (for the PoC)
-# In a production environment, use a proper database
+# --- In-Memory Data Store ---
+# Store analysis results and the detailed comment dataframe
 app_data = {
-    "raw_data": None,
-    "processed_data": None,
-    "department_data": None,
-    "risk_scores": None,
-    "explanations": None,
+    "analysis_results": None, # Will hold dict: {"overall_summary": {...}, "department_summary": {...}}
+    "processed_comments_df": None, # Will hold the DataFrame output from NLP pipeline
     "last_updated": None
 }
 
+# --- API Endpoints ---
+
 @app.get("/", tags=["Info"])
 async def root():
-    """API root endpoint"""
+    """API root endpoint providing status."""
     return {
         "message": "Staff Feedback Analysis API",
         "status": "active",
-        "data_loaded": app_data["raw_data"] is not None,
+        "data_loaded": app_data["analysis_results"] is not None,
         "last_updated": app_data["last_updated"]
     }
 
-@app.post("/upload", tags=["Data"])
+@app.post("/upload", response_model=UploadResponse, tags=["Data"])
 async def upload_data(file: UploadFile = File(...)):
-    """Upload and process new data file"""
+    """Upload and process new data file (Excel/CSV with Department and Feedback)."""
+    print(f"[API /upload] Received upload request for file: {file.filename}") # DEBUG - Function Entry
     if not file:
+        print("[API /upload] ERROR: No file provided in request.") # DEBUG
         raise HTTPException(status_code=400, detail="No file provided")
 
-    # Check file extension
     file_ext = os.path.splitext(file.filename)[1].lower()
     if file_ext not in ['.csv', '.xlsx', '.xls']:
+        print(f"[API /upload] ERROR: Unsupported file format '{file_ext}'") # DEBUG
         raise HTTPException(status_code=400, detail="Unsupported file format. Please upload a CSV or Excel file.")
 
+    temp_path = None # Initialize temp_path
     try:
         # Save uploaded file to temporary location
         with tempfile.NamedTemporaryFile(delete=False, suffix=file_ext) as temp_file:
             content = await file.read()
             if not content:
                 raise HTTPException(status_code=400, detail="Empty file provided")
-
             temp_file.write(content)
             temp_path = temp_file.name
 
-        # Process the uploaded file
+        # --- Data Processing Pipeline ---
         try:
-            raw_df = load_data(temp_path)
-            if raw_df is None or raw_df.empty:
-                raise ValueError("Unable to load data from file or file is empty")
+            # 1. Load and Preprocess Data
+            print("[API /upload] START: Loading and preprocessing data...") # DEBUG
+            preprocessed_df = main_preprocessing(temp_path)
+            if preprocessed_df is None or preprocessed_df.empty:
+                print("[API /upload] ERROR: Preprocessing resulted in an empty DataFrame.") # DEBUG
+                raise ValueError("Preprocessing resulted in an empty DataFrame.")
+            print(f"[API /upload] DONE: Preprocessing complete. {len(preprocessed_df)} comments ready.") # DEBUG
+
+            # 2. Run NLP Pipeline (Sentiment, Themes, Subthemes)
+            print("[API /upload] START: Running NLP pipeline...") # DEBUG
+            comment_level_df, aggregated_results = process_nlp_pipeline(preprocessed_df)
+            print("[API /upload] DONE: NLP pipeline complete.") # DEBUG
+
+            if comment_level_df is None or aggregated_results is None:
+                 print("[API /upload] ERROR: NLP pipeline did not return valid results (None returned).") # DEBUG
+                 raise ValueError("NLP pipeline did not return valid results.")
+
+            # 3. Store Results
+            print("[API /upload] START: Storing results...") # DEBUG
+            app_data["processed_comments_df"] = comment_level_df
+            app_data["analysis_results"] = aggregated_results
+            app_data["last_updated"] = datetime.now().isoformat()
+            print("[API /upload] DONE: Results stored.") # DEBUG
+
+            comments_processed = len(comment_level_df)
+            departments_found = len(aggregated_results.get("department_summary", {}))
+
+            print(f"[API /upload] SUCCESS: Processing successful: {comments_processed} comments, {departments_found} departments.") # DEBUG
+
+            return {
+                "status": "success",
+                "file_name": file.filename,
+                "comments_processed": comments_processed,
+                "departments_found": departments_found,
+            }
+
+        except ValueError as ve:
+             print(f"[API /upload] ERROR (ValueError) during processing: {ve}") # DEBUG Explicit log
+             raise HTTPException(status_code=400, detail=f"Error processing data: {str(ve)}")
         except Exception as e:
-            raise HTTPException(status_code=400, detail=f"Error loading data: {str(e)}")
-
-        try:
-            processed_df = preprocess_data(raw_df)
-            comment_df = process_nlp_pipeline(processed_df)
-            
-            # Generate department data using NLPProcessor's aggregate_by_department method
-            nlp_processor = NLPProcessor()
-            dept_df = nlp_processor.aggregate_by_department(comment_df)
-            
-            # Skip predictive modeling for now
-            # risk_scores, explanations = run_predictive_modeling(dept_df)
-            risk_scores, explanations = None, None
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Error processing data: {str(e)}")
-
-        # Calculate comments_processed and departments_processed
-        comments_processed = len(processed_df) if processed_df is not None else 0
-        departments_processed = len(dept_df) if dept_df is not None else 0
-
-        # Store the processed data
-        app_data["raw_data"] = raw_df
-        app_data["processed_data"] = comment_df  # Store the NLP-processed data with sentiment_score
-        app_data["department_data"] = dept_df
-        app_data["risk_scores"] = dept_df  # Use department data instead of risk scores
-        app_data["explanations"] = None
-        app_data["last_updated"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-        # Clean up temporary file
-        os.unlink(temp_path)
-
-        return {
-            "status": "success",
-            "file_name": file.filename,
-            "comments_processed": comments_processed,
-            "departments_processed": departments_processed,
-        }
+             print(f"[API /upload] ERROR (Exception) during processing: {e}") # DEBUG Explicit log
+             import traceback
+             traceback.print_exc() # Log full traceback to stderr
+             raise HTTPException(status_code=500, detail=f"Internal server error during data processing: {str(e)}")
 
     except HTTPException:
-        # Re-raise HTTP exceptions
+        # Re-raise HTTP exceptions (e.g., file format error)
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error processing file: {str(e)}")
+        # Catch errors related to file handling
+        print(f"File handling error: {e}")
+        raise HTTPException(status_code=500, detail=f"Error handling file: {str(e)}")
+    finally:
+        # Clean up temporary file
+        if temp_path and os.path.exists(temp_path):
+            try:
+                os.unlink(temp_path)
+                print(f"Temporary file {temp_path} deleted.")
+            except Exception as unlink_err:
+                 print(f"Error deleting temporary file {temp_path}: {unlink_err}")
+
 
 @app.get("/departments", response_model=DepartmentList, tags=["Data"])
 async def get_departments():
-    """Get list of all departments"""
-    if app_data["risk_scores"] is None:
-        raise HTTPException(status_code=404, detail="No data loaded. Please upload data first.")
+    """Get list of all unique departments found in the data."""
+    if app_data["analysis_results"] is None or "department_summary" not in app_data["analysis_results"]:
+        # Return empty list if no data or structure is missing
+        # raise HTTPException(status_code=404, detail="No data loaded or processed yet.")
+        print("No department data available.")
+        return {"departments": []}
 
-    departments = app_data["risk_scores"]["department"].tolist()
-    return {"departments": departments}
 
-@app.get("/risk/all", response_model=List[DepartmentRisk], tags=["Risk Analysis"])
-async def get_all_risks():
-    """Get risk scores for all departments"""
-    if app_data["risk_scores"] is None:
-        raise HTTPException(status_code=404, detail="No data loaded. Please upload data first.")
+    departments = list(app_data["analysis_results"]["department_summary"].keys())
+    return {"departments": sorted(departments)} # Return sorted list
 
-    result = []
+# --- Analysis Endpoints ---
+
+@app.get("/analysis/overall", response_model=OverallAnalysis, tags=["Analysis"])
+async def get_overall_analysis():
+    """Get the overall analysis summary for the entire dataset."""
+    if app_data["analysis_results"] is None or "overall_summary" not in app_data["analysis_results"]:
+        raise HTTPException(status_code=404, detail="Overall analysis data not available. Please upload data.")
+
+    summary = app_data["analysis_results"]["overall_summary"]
+    # Ensure the summary conforms to the Pydantic model
     try:
-        for _, row in app_data["risk_scores"].iterrows():
-            dept = row.get("department", "Unknown")
-            if not dept or dept == "Unknown":
-                continue  # Skip entries without valid department names
-
-            # Use sentiment score as a proxy for risk
-            # Higher negative sentiment = higher risk
-            sentiment = row.get("avg_sentiment", 0.5)
-            # Invert the sentiment score (1 - sentiment) to get risk score (0-1)
-            # Then scale to 1-5 range
-            risk_score = ((1 - sentiment) * 4) + 1
-            
-            # Define high risk as having risk score > 3.5
-            high_risk = risk_score > 3.5
-
-            # Get top themes with highest counts
-            theme_cols = [col for col in row.index if col.endswith('_count')]
-            top_themes = []
-            
-            if theme_cols:
-                themes_data = [(col.replace('_count', ''), row[col]) for col in theme_cols]
-                # Sort by count, descending
-                themes_data.sort(key=lambda x: x[1], reverse=True)
-                
-                # Take top 3 themes
-                for i, (theme, count) in enumerate(themes_data[:3]):
-                    if count > 0:  # Only include themes that were mentioned
-                        # Calculate contribution percentage (out of total comments)
-                        comment_count = row.get("comment_count", 1)  # Avoid division by zero
-                        contribution_pct = int((count / comment_count) * 100) if comment_count > 0 else 0
-                        
-                        top_themes.append({
-                            "feature": theme,
-                            "contribution_pct": contribution_pct
-                        })
-
-            result.append({
-                "department": dept,
-                "risk_score": float(risk_score),
-                "high_risk": bool(high_risk),
-                "top_themes": top_themes
-            })
-
-        # Sort by risk score (highest risk first)
-        result.sort(key=lambda x: x["risk_score"], reverse=True)
-        return result
-
+        # Pydantic will validate the structure during serialization
+        return summary
     except Exception as e:
-        print(f"Error in get_all_risks: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error retrieving risk data: {str(e)}")
+         print(f"Error formatting overall summary: {e}")
+         raise HTTPException(status_code=500, detail="Error formatting overall analysis results.")
 
-@app.get("/risk/{department}", response_model=DepartmentRisk, tags=["Risk Analysis"])
-async def get_department_risk(department: str):
-    """Get risk score for a specific department"""
-    if app_data["risk_scores"] is None:
-        raise HTTPException(status_code=404, detail="No data loaded. Please upload data first.")
 
-    # Find department in risk scores
-    dept_risk = app_data["risk_scores"][app_data["risk_scores"]["department"] == department]
-    if dept_risk.empty:
-        raise HTTPException(status_code=404, detail=f"Department '{department}' not found.")
+@app.get("/analysis/departments", response_model=List[DepartmentAnalysis], tags=["Analysis"])
+async def get_all_department_analysis():
+    """Get analysis summaries for all departments."""
+    if app_data["analysis_results"] is None or "department_summary" not in app_data["analysis_results"]:
+        # Return empty list if no data
+        print("No department summary data available for /analysis/departments.")
+        return []
+        # raise HTTPException(status_code=404, detail="Department analysis data not available.")
 
+    dept_summary_dict = app_data["analysis_results"]["department_summary"]
+    result_list = []
+    for dept_name, summary in dept_summary_dict.items():
+        try:
+            # Add department name to the summary dict before validation
+            summary_with_dept = summary.copy()
+            summary_with_dept["department"] = dept_name
+            # Validate and append
+            result_list.append(DepartmentAnalysis(**summary_with_dept))
+        except Exception as e:
+             print(f"Error formatting summary for department '{dept_name}': {e}")
+             # Skip this department in case of formatting errors? Or raise 500?
+             # For now, skip and log.
+             continue
+
+    # Optional: Sort by a metric, e.g., average sentiment (ascending - more negative first)
+    result_list.sort(key=lambda x: x.avg_sentiment)
+
+    return result_list
+
+@app.get("/analysis/department/{department_name}", response_model=DepartmentAnalysis, tags=["Analysis"])
+async def get_single_department_analysis(department_name: str):
+    """Get analysis summary for a specific department."""
+    if app_data["analysis_results"] is None or "department_summary" not in app_data["analysis_results"]:
+        raise HTTPException(status_code=404, detail="Department analysis data not available.")
+
+    dept_summary_dict = app_data["analysis_results"]["department_summary"]
+    if department_name not in dept_summary_dict:
+        raise HTTPException(status_code=404, detail=f"Analysis data for department '{department_name}' not found.")
+
+    summary = dept_summary_dict[department_name]
     try:
-        # Get row data
-        risk_data = dept_risk.iloc[0]
-        
-        # Use sentiment score as a proxy for risk
-        sentiment = risk_data.get("avg_sentiment", 0.5)
-        # Invert the sentiment score (1 - sentiment) to get risk score (0-1)
-        # Then scale to 1-5 range
-        risk_score = ((1 - sentiment) * 4) + 1
-        
-        # Define high risk as having risk score > 3.5
-        high_risk = risk_score > 3.5
-
-        # Get top themes with highest counts
-        theme_cols = [col for col in risk_data.index if col.endswith('_count')]
-        top_themes = []
-        
-        if theme_cols:
-            themes_data = [(col.replace('_count', ''), risk_data[col]) for col in theme_cols]
-            # Sort by count, descending
-            themes_data.sort(key=lambda x: x[1], reverse=True)
-            
-            # Take top 3 themes
-            for i, (theme, count) in enumerate(themes_data[:3]):
-                if count > 0:  # Only include themes that were mentioned
-                    # Calculate contribution percentage (out of total comments)
-                    comment_count = risk_data.get("comment_count", 1)  # Avoid division by zero
-                    contribution_pct = int((count / comment_count) * 100) if comment_count > 0 else 0
-                    
-                    top_themes.append({
-                        "feature": theme,
-                        "contribution_pct": contribution_pct
-                    })
-
-        return {
-            "department": department,
-            "risk_score": float(risk_score),
-            "high_risk": bool(high_risk),
-            "top_themes": top_themes
-        }
+        # Add department name and validate
+        summary_with_dept = summary.copy()
+        summary_with_dept["department"] = department_name
+        return DepartmentAnalysis(**summary_with_dept)
     except Exception as e:
-        print(f"Error in get_department_risk: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error retrieving department risk: {str(e)}")
+        print(f"Error formatting summary for department '{department_name}': {e}")
+        raise HTTPException(status_code=500, detail="Error formatting department analysis results.")
 
-@app.get("/themes/summary", tags=["Theme Analysis"])
-async def get_themes_summary():
-    """Get summary of themes across all departments"""
-    if app_data["department_data"] is None:
-        raise HTTPException(status_code=404, detail="No data loaded. Please upload data first.")
 
-    try:
-        # Get theme columns (those ending with _count)
-        theme_cols = [col for col in app_data["department_data"].columns if col.endswith('_count')]
+@app.get("/themes/detailed", response_model=ThemeSummary, tags=["Theme Analysis"])
+async def get_detailed_themes(department: Optional[str] = Query(None, description="Filter themes for a specific department")):
+    """Get detailed theme and subtheme counts and sentiment, optionally filtered by department."""
+    if app_data["analysis_results"] is None:
+        raise HTTPException(status_code=404, detail="Analysis data not available.")
 
-        # Calculate total counts for each theme
-        theme_totals = {}
-        for col in theme_cols:
-            theme_name = col.replace('_count', '')
-            theme_totals[theme_name] = int(app_data["department_data"][col].sum())
-
-        # Sort by count (descending)
-        sorted_themes = sorted(theme_totals.items(), key=lambda x: x[1], reverse=True)
-
-        return {"themes": dict(sorted_themes)}
-    except Exception as e:
-        print(f"Error in get_themes_summary: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error generating themes summary: {str(e)}")
-
-@app.get("/comments/sample", tags=["Data"])
-async def get_comment_samples(department: Optional[str] = None, theme: Optional[str] = None, limit: int = 5):
-    """Get sample comments, optionally filtered by department and/or theme"""
-    if app_data["processed_data"] is None:
-        raise HTTPException(status_code=404, detail="No data loaded. Please upload data first.")
-
-    # Start with all processed data
-    df = app_data["processed_data"]
-    
-    # Debug information
-    print(f"Columns available in processed_data: {df.columns.tolist()}")
-    
-    # Filter by department if specified
+    summary_data = None
     if department:
-        df = df[df['department'] == department]
-        if df.empty:
-            raise HTTPException(status_code=404, detail=f"Department '{department}' not found.")
+        if "department_summary" not in app_data["analysis_results"] or department not in app_data["analysis_results"]["department_summary"]:
+             raise HTTPException(status_code=404, detail=f"Data for department '{department}' not found.")
+        summary_data = app_data["analysis_results"]["department_summary"][department]
+    else:
+        if "overall_summary" not in app_data["analysis_results"]:
+             raise HTTPException(status_code=404, detail="Overall analysis data not available.")
+        summary_data = app_data["analysis_results"]["overall_summary"]
 
-    # Filter by theme if specified
-    if theme:
-        theme_col = f'theme_{theme}'
-        if theme_col not in df.columns:
-            raise HTTPException(status_code=404, detail=f"Theme '{theme}' not found.")
-        df = df[df[theme_col] == 1]
-        if df.empty:
-            raise HTTPException(status_code=404, detail=f"No comments found for theme '{theme}'.")
+    # Extract only the theme/subtheme parts for the response model
+    theme_results = {
+        "themes": summary_data.get("themes", {}),
+        "subthemes": summary_data.get("subthemes", {})
+    }
 
     try:
-        # Check what columns are available
-        available_columns = ['department', 'free_text_comments']
-        if 'sentiment_score' in df.columns:
-            available_columns.append('sentiment_score')
-        
-        # Get sample comments
-        samples = df.sample(min(limit, len(df)))[available_columns].to_dict(orient='records')
-        return {"samples": samples, "total_matching": len(df)}
+        # Validate against the ThemeSummary model
+        return ThemeSummary(**theme_results)
     except Exception as e:
-        print(f"Error in get_comment_samples: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error retrieving comments: {str(e)}")
+        print(f"Error formatting theme details: {e}")
+        raise HTTPException(status_code=500, detail="Error formatting theme details.")
 
-@app.get("/data/summary", tags=["Data"])
+
+@app.get("/comments/sample", response_model=CommentSampleResponse, tags=["Data"])
+async def get_comment_samples(department: Optional[str] = Query(None),
+                              theme: Optional[str] = Query(None),
+                              subtheme: Optional[str] = Query(None),
+                              sentiment: Optional[str] = Query(None, enum=['positive', 'negative', 'neutral']),
+                              limit: int = Query(10, ge=1, le=100)):
+    """Get sample comments, filterable by department, theme, subtheme, and sentiment."""
+    if app_data["processed_comments_df"] is None:
+        raise HTTPException(status_code=404, detail="No processed comment data available.")
+
+    df = app_data["processed_comments_df"]
+    if df.empty:
+         return {"samples": [], "total_matching": 0}
+
+    # --- Add Column Existence Checks ---
+    required_filter_cols = ['department', 'overall_sentiment_category', 'themes_subthemes']
+    missing_cols_check = [col for col in required_filter_cols if col not in df.columns]
+    if missing_cols_check:
+        print(f"ERROR: Missing required columns in processed_comments_df for filtering: {missing_cols_check}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: Dataframe is missing expected columns for filtering ({missing_cols_check}).")
+    # ------------------------------------
+
+    # Apply filters
+    filtered_df = df.copy()
+    if department:
+        # Case-insensitive matching for department
+        filtered_df = filtered_df[filtered_df['department'].str.lower() == department.lower()]
+    if sentiment:
+        # Use the new overall category column for filtering
+        filtered_df = filtered_df[filtered_df['overall_sentiment_category'] == sentiment]
+
+    # Theme/Subtheme filtering requires checking the list of tuples
+    if theme:
+        theme_lower = theme.lower() # Case-insensitive theme matching
+        def check_theme(themes_list):
+            if not isinstance(themes_list, list): return False
+            subtheme_lower = subtheme.lower() if subtheme else None # Case-insensitive subtheme
+            for t, s in themes_list:
+                t_lower = t.lower() if t else None
+                s_lower = s.lower() if s else None
+                if t_lower == theme_lower:
+                    # If subtheme is also specified, check that too
+                    if subtheme_lower:
+                        if s_lower == subtheme_lower:
+                            return True
+                    else: # If only theme is specified, match if theme exists (regardless of subtheme)
+                        return True
+            return False
+        filtered_df = filtered_df[filtered_df['themes_subthemes'].apply(check_theme)]
+    elif subtheme: # Allow filtering by subtheme even if main theme isn't specified
+         subtheme_lower = subtheme.lower() # Case-insensitive subtheme
+         def check_subtheme(themes_list):
+            if not isinstance(themes_list, list): return False
+            for t, s in themes_list:
+                s_lower = s.lower() if s else None
+                if s_lower == subtheme_lower:
+                    return True
+            return False
+         filtered_df = filtered_df[filtered_df['themes_subthemes'].apply(check_subtheme)]
+
+
+    total_matching = len(filtered_df)
+
+    # Get sample
+    sample_size = min(limit, total_matching)
+    samples_df = filtered_df.sample(sample_size) if sample_size > 0 else pd.DataFrame()
+
+    # Format results
+    result_samples = []
+    if not samples_df.empty:
+        # Select relevant columns - ensure 'original_comment' exists from preprocessing
+        # UPDATED cols_to_select to use new sentiment fields
+        cols_to_select = ['department', 'original_comment', 'overall_sentiment_score', 'overall_sentiment_category', 'themes_subthemes']
+        missing_cols = [col for col in cols_to_select if col not in samples_df.columns]
+        if missing_cols:
+             print(f"Warning: Missing columns for comment samples: {missing_cols}")
+             # Handle missing columns gracefully, maybe return fewer fields
+             cols_to_select = [col for col in cols_to_select if col in samples_df.columns]
+
+
+        if cols_to_select: # Proceed only if we have columns to select
+             # Convert DataFrame rows to dictionaries
+             temp_samples = samples_df[cols_to_select].to_dict(orient='records')
+             # Validate each sample with the Pydantic model
+             for sample_dict in temp_samples:
+                 try:
+                     # Ensure themes_subthemes is correctly formatted (list of tuples)
+                     if 'themes_subthemes' not in sample_dict or not isinstance(sample_dict['themes_subthemes'], list):
+                         sample_dict['themes_subthemes'] = []
+                     # Validate and append
+                     validated_sample = CommentSample(**sample_dict)
+                     result_samples.append(validated_sample.dict()) # Convert back to dict for JSON response if needed
+                 except Exception as val_err:
+                     print(f"Validation error for comment sample: {val_err}. Sample: {sample_dict}")
+                     # Optionally skip invalid samples
+
+
+    return {"samples": result_samples, "total_matching": total_matching}
+
+
+@app.get("/data/summary", response_model=DataSummary, tags=["Data"])
 async def get_data_summary():
-    """Get summary statistics of the loaded data"""
-    if app_data["raw_data"] is None:
-        raise HTTPException(status_code=404, detail="No data loaded. Please upload data first.")
+    """Get high-level summary statistics of the loaded and processed data."""
+    if app_data["analysis_results"] is None or app_data["processed_comments_df"] is None:
+        raise HTTPException(status_code=404, detail="Data not loaded or processed yet.")
 
     try:
-        # Basic summary stats
-        raw_data_len = len(app_data["raw_data"]) if app_data["raw_data"] is not None else 0
-        dept_data_len = len(app_data["department_data"]) if app_data["department_data"] is not None else 0
+        overall_summary = app_data["analysis_results"].get("overall_summary", {})
+        dept_summary = app_data["analysis_results"].get("department_summary", {})
 
-        # Calculate average safely
+        total_comments = overall_summary.get("comment_count", 0)
+        total_departments = len(dept_summary)
         avg_comments = 0
-        if dept_data_len > 0:
-            avg_comments = round(raw_data_len / dept_data_len, 1)
+        if total_departments > 0:
+            avg_comments = round(total_comments / total_departments, 1)
 
-        # Get sentiment counts safely based on sentiment_score
-        sentiment_counts = {"positive": 0, "neutral": 0, "negative": 0}
-        if app_data["processed_data"] is not None:
-            try:
-                # Categorize sentiment scores: > 0.6 is positive, < 0.4 is negative, rest is neutral
-                sentiment_counts["positive"] = int((app_data["processed_data"]["sentiment_score"] > 0.6).sum())
-                sentiment_counts["neutral"] = int(((app_data["processed_data"]["sentiment_score"] >= 0.4) & 
-                                                  (app_data["processed_data"]["sentiment_score"] <= 0.6)).sum())
-                sentiment_counts["negative"] = int((app_data["processed_data"]["sentiment_score"] < 0.4).sum())
-            except Exception as e:
-                print(f"Error counting sentiments: {str(e)}")
-                # If there's an error counting sentiments, keep defaults
-                pass
+        sentiment_dist = overall_summary.get("sentiment_distribution", {"positive": 0, "neutral": 0, "negative": 0})
 
-        # Get high risk count safely - using inverted sentiment score
-        high_risk_count = 0
-        if app_data["department_data"] is not None:
-            try:
-                # High risk is when avg_sentiment < 0.4 (which means risk_score > 3.5)
-                high_risk_count = int((app_data["department_data"]["avg_sentiment"] < 0.4).sum())
-            except Exception as e:
-                print(f"Error counting high risk: {str(e)}")
-                # If there's an error counting high risk, keep default
-                pass
+        # Count departments with high negative sentiment (e.g., avg_sentiment < 0.4)
+        high_neg_sentiment_count = 0
+        neg_sentiment_threshold = 0.4 # Define threshold for "high negative"
+        for dept_data in dept_summary.values():
+            if dept_data.get("avg_sentiment", 0.5) < neg_sentiment_threshold:
+                high_neg_sentiment_count += 1
 
         summary = {
-            "total_comments": raw_data_len,
-            "total_departments": dept_data_len,
+            "total_comments": total_comments,
+            "total_departments": total_departments,
             "avg_comments_per_department": avg_comments,
-            "sentiment_distribution": sentiment_counts,
-            "high_risk_departments": high_risk_count,
+            "sentiment_distribution": sentiment_dist,
+            "high_negative_sentiment_departments": high_neg_sentiment_count,
             "last_updated": app_data["last_updated"]
         }
 
-        return summary
+        # Validate using Pydantic model before returning
+        return DataSummary(**summary)
+
     except Exception as e:
-        print(f"Error in get_data_summary: {str(e)}")
+        print(f"Error generating data summary: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error generating data summary: {str(e)}")
 
-# Run the app with: uvicorn api:app --reload
-# For the PoC, this would be imported and used by the Streamlit app
+
+# Import the main function from preprocessing to use in upload
+# Already imported at the top: from preprocessing import main as main_preprocessing
+
+# Note: Ensure the main script (`main.py` or similar) that runs uvicorn points to this `api:app`.
+# Example: uvicorn api:app --reload

@@ -17,13 +17,13 @@ from datetime import datetime
 
 def load_data(file_path):
     """
-    Load data from an Excel or CSV file
+    Load data from an Excel or CSV file, specifically looking for Department and Feedback columns.
 
     Args:
         file_path (str): Path to the data file
 
     Returns:
-        pd.DataFrame: Processed dataframe with standardized columns
+        pd.DataFrame: Processed dataframe with standardized 'department' and 'free_text_comments' columns.
     """
     # Determine file type and load accordingly
     file_extension = os.path.splitext(file_path)[1].lower()
@@ -36,63 +36,44 @@ def load_data(file_path):
         raise ValueError(f"Unsupported file type: {file_extension}. Please provide a CSV or Excel file.")
 
     print(f"Original columns: {df.columns.tolist()}")
-    
-    # Handle single-question narrative files (like NQPS Q4)
-    if len(df.columns) == 1 and 'department' not in [col.lower() for col in df.columns]:
-        print(f"Detected single question format: {df.columns[0]}")
-        # Create a dataframe with the narrative answers and assign a generic department
-        comments_column = df.columns[0]
-        processed_df = pd.DataFrame({
-            'department': ['General'] * len(df),
-            'free_text_comments': df[comments_column].values
-        })
-        return processed_df
-    
-    # Check if required columns exist (case insensitive)
-    required_columns = ['department', 'free-text comments']
-    df_columns_lower = [col.lower() for col in df.columns]
+    df_columns_lower = {col.lower().strip(): col for col in df.columns} # Map lower case to original case
 
-    # Map actual column names to standardized names
-    column_mapping = {}
-    for req_col in required_columns:
-        matches = [col for i, col in enumerate(df.columns) if df_columns_lower[i] == req_col]
-        if matches:
-            column_mapping[matches[0]] = req_col.replace('-', '_').replace(' ', '_')
-        else:
-            # Try to find columns with similar names
-            potential_matches = [
-                col for i, col in enumerate(df.columns)
-                if req_col.replace('-', '').replace(' ', '') in df_columns_lower[i].replace(' ', '')
-            ]
-            if potential_matches:
-                column_mapping[potential_matches[0]] = req_col.replace('-', '_').replace(' ', '_')
-            else:
-                # If we can't find a department column, create one
-                if req_col == 'department':
-                    print(f"Department column not found. Creating a generic department column.")
-                    df['department'] = 'General'
-                    column_mapping['department'] = 'department'
-                # If we can't find a comments column, try to use the first text column
-                elif req_col == 'free-text comments':
-                    # Look for columns that might contain comments
-                    text_columns = [col for col in df.columns if 'comment' in col.lower() 
-                                   or 'feedback' in col.lower() 
-                                   or 'text' in col.lower()
-                                   or 'response' in col.lower()
-                                   or 'answer' in col.lower()]
-                    
-                    if text_columns:
-                        print(f"Using {text_columns[0]} as comments column.")
-                        column_mapping[text_columns[0]] = 'free_text_comments'
-                    else:
-                        # If no suitable column found, just use the first column as comments
-                        print(f"Comment column not found. Using first column: {df.columns[0]}")
-                        column_mapping[df.columns[0]] = 'free_text_comments'
+    # Define expected column name variants
+    dept_variants = ['department', 'dept name', 'care group', 'dept']
+    comment_variants = ['feedback', 'comments', 'narrative', 'free text', 'free_text_comments', 'freetext comments', 'narrative feedback']
 
-    # Rename columns to standardized format
-    df = df.rename(columns=column_mapping)
+    department_col = None
+    comments_col = None
 
-    return df
+    # Find Department column
+    for variant in dept_variants:
+        if variant in df_columns_lower:
+            department_col = df_columns_lower[variant]
+            print(f"Found department column: '{department_col}'")
+            break
+
+    # Find Feedback/Comments column
+    for variant in comment_variants:
+        if variant in df_columns_lower:
+            comments_col = df_columns_lower[variant]
+            print(f"Found comments column: '{comments_col}'")
+            break
+
+    # Validate that both columns were found
+    if not department_col:
+        raise ValueError(f"Could not find a 'Department' column. Looked for variants like: {dept_variants}. Found columns: {df.columns.tolist()}")
+    if not comments_col:
+        raise ValueError(f"Could not find a 'Feedback' or 'Comments' column. Looked for variants like: {comment_variants}. Found columns: {df.columns.tolist()}")
+
+    # Select and rename the required columns
+    processed_df = df[[department_col, comments_col]].copy()
+    processed_df.rename(columns={
+        department_col: 'department',
+        comments_col: 'free_text_comments'
+    }, inplace=True)
+
+    print(f"Standardized columns: {processed_df.columns.tolist()}")
+    return processed_df
 
 def preprocess_data(df):
     """
@@ -108,8 +89,10 @@ def preprocess_data(df):
     processed_df = df.copy()
 
     # 1. Handle missing values
-    # Drop rows with empty comments
-    processed_df = processed_df.dropna(subset=['free_text_comments'])
+    # Drop rows with empty comments or department
+    processed_df = processed_df.dropna(subset=['department', 'free_text_comments'])
+    processed_df = processed_df[processed_df['free_text_comments'].astype(str).str.strip() != '']
+    processed_df = processed_df[processed_df['department'].astype(str).str.strip() != '']
 
     # 2. Standardize department names
     processed_df['department'] = processed_df['department'].apply(
@@ -124,6 +107,9 @@ def preprocess_data(df):
     # 4. Add metadata
     processed_df['word_count'] = processed_df['cleaned_comments'].apply(lambda x: len(x.split()))
     processed_df['processing_date'] = datetime.now().strftime('%Y-%m-%d')
+
+    # Keep original comment for reference if needed later
+    processed_df['original_comment'] = df['free_text_comments']
 
     return processed_df
 
@@ -143,34 +129,13 @@ def clean_text(text):
     # Convert to lowercase
     text = text.lower()
 
-    # Remove special characters and digits
-    text = re.sub(r'[^\w\s]', ' ', text)
+    # Remove special characters and digits (keep basic punctuation like apostrophes)
+    text = re.sub(r'[^a-z0-9\s]', ' ', text) # Remove punctuation more aggressively if needed
 
     # Remove extra whitespace
     text = re.sub(r'\s+', ' ', text).strip()
 
     return text
-
-def group_by_department(df):
-    """
-    Group comments by department and create department-level aggregations
-
-    Args:
-        df (pd.DataFrame): Preprocessed dataframe
-
-    Returns:
-        pd.DataFrame: Dataframe with department-level aggregations
-    """
-    dept_groups = df.groupby('department')
-
-    # Create department-level aggregations
-    dept_stats = pd.DataFrame({
-        'comment_count': dept_groups['cleaned_comments'].count(),
-        'avg_word_count': dept_groups['word_count'].mean().round(1),
-        'all_comments': dept_groups['cleaned_comments'].apply(lambda x: ' '.join(x))
-    }).reset_index()
-
-    return dept_stats
 
 def main(file_path):
     """
@@ -180,7 +145,7 @@ def main(file_path):
         file_path (str): Path to the data file
 
     Returns:
-        tuple: (raw_df, dept_df) - raw and department-level dataframes
+        pd.DataFrame: processed_df - preprocessed dataframe ready for NLP
     """
     print(f"Loading data from {file_path}...")
     raw_df = load_data(file_path)
@@ -190,21 +155,22 @@ def main(file_path):
     processed_df = preprocess_data(raw_df)
     print(f"After preprocessing: {len(processed_df)} rows remain.")
 
-    print("Grouping by department...")
-    dept_df = group_by_department(processed_df)
-    print(f"Created department-level aggregations for {len(dept_df)} departments.")
-
-    return processed_df, dept_df
+    # No longer returns dept_df from here
+    return processed_df
 
 # Example usage
 if __name__ == "__main__":
     # This will be replaced with actual file path when running the code
-    sample_file_path = "Sample.xlsx"
-    processed_data, department_data = main(sample_file_path)
+    sample_file_path = "Sample.xlsx" # Make sure this file exists or change path
+    try:
+        processed_data = main(sample_file_path)
 
-    # Display sample of the processed data
-    print("\nSample of processed data:")
-    print(processed_data.head())
-
-    print("\nDepartment-level aggregations:")
-    print(department_data.head())
+        # Display sample of the processed data
+        print("\nSample of processed data:")
+        print(processed_data[['department', 'cleaned_comments', 'word_count']].head())
+    except FileNotFoundError:
+        print(f"Error: Sample file '{sample_file_path}' not found.")
+    except ValueError as ve:
+        print(f"Error during preprocessing: {ve}")
+    except Exception as e:
+        print(f"An unexpected error occurred: {e}")
